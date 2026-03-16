@@ -1391,7 +1391,7 @@ async def seed_demo_data(request: Request):
         ts = now - timedelta(days=days_ago, hours=hours_ago, minutes=random.randint(0, 59))
         calls.append({
             "call_id": f"call_{uuid.uuid4().hex[:16]}",
-            "user_id": user.user_id,
+            "owner_id": user.user_id,
             "provider_id": provider,
             "model": model,
             "feature": random.choice(features),
