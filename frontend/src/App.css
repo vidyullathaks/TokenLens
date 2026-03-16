@@ -1,34 +1,59 @@
-.App-logo {
-    height: 40vmin;
-    pointer-events: none;
+/* App-specific styles */
+.App {
+  min-height: 100vh;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-    .App-logo {
-        animation: App-logo-spin infinite 20s linear;
-    }
+/* Recharts custom tooltip */
+.recharts-tooltip-wrapper .recharts-default-tooltip {
+  background: white !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+  padding: 12px !important;
 }
 
-.App-header {
-    background-color: #0f0f10;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    font-size: calc(10px + 2vmin);
-    color: white;
+.recharts-tooltip-wrapper .recharts-default-tooltip .recharts-tooltip-label {
+  font-weight: 600 !important;
+  color: #0f172a !important;
+  margin-bottom: 4px !important;
 }
 
-.App-link {
-    color: #61dafb;
+.recharts-tooltip-wrapper .recharts-default-tooltip .recharts-tooltip-item {
+  color: #334155 !important;
+  font-size: 0.875rem !important;
 }
 
-@keyframes App-logo-spin {
-    from {
-        transform: rotate(0deg);
-    }
-    to {
-        transform: rotate(360deg);
-    }
+/* Custom gradient for login page */
+.login-gradient {
+  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+}
+
+/* Card hover effect */
+.stat-card {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Table row hover */
+.table-row-hover:hover {
+  background-color: #f8fafc;
+}
+
+/* Code snippet tabs */
+.code-tab-active {
+  background-color: #0f172a;
+  color: white;
+}
+
+.code-tab-inactive {
+  background-color: #f1f5f9;
+  color: #64748b;
+}
+
+.code-tab-inactive:hover {
+  background-color: #e2e8f0;
 }
