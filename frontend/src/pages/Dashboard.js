@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { Button } from '../components/ui/button';
 import { 
   Table, 
   TableBody, 
@@ -20,7 +22,7 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, Zap, Activity, Layers } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Zap, Activity, Layers, Settings, AlertCircle } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -32,6 +34,8 @@ export default function Dashboard() {
   const [topUsers, setTopUsers] = useState([]);
   const [recentCalls, setRecentCalls] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [connectedProviders, setConnectedProviders] = useState([]);
+  const [hasRealData, setHasRealData] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -39,6 +43,40 @@ export default function Dashboard() {
 
   const fetchDashboardData = async () => {
     try {
+      // First check connected providers
+      const providersRes = await fetch(`${API}/settings/providers`, { credentials: 'include' });
+      if (providersRes.ok) {
+        const providers = await providersRes.json();
+        setConnectedProviders(providers);
+        
+        // If providers connected, try to get real data first
+        if (providers.length > 0) {
+          const realStatsRes = await fetch(`${API}/dashboard/real-stats`, { credentials: 'include' });
+          if (realStatsRes.ok) {
+            const realStats = await realStatsRes.json();
+            if (realStats.has_data && realStats.api_calls > 0) {
+              setHasRealData(true);
+              setStats(realStats);
+              
+              // Fetch real data
+              const [featureRes, callsRes] = await Promise.all([
+                fetch(`${API}/dashboard/real-cost-by-feature`, { credentials: 'include' }),
+                fetch(`${API}/dashboard/real-recent-calls`, { credentials: 'include' })
+              ]);
+              
+              if (featureRes.ok) setCostByFeature(await featureRes.json());
+              if (callsRes.ok) setRecentCalls(await callsRes.json());
+              
+              // Generate daily data placeholder
+              setDailySpend(generateEmptyDailyData());
+              setTopUsers([]);
+              return;
+            }
+          }
+        }
+      }
+      
+      // Fall back to demo data
       const [statsRes, featureRes, dailyRes, usersRes, callsRes] = await Promise.all([
         fetch(`${API}/dashboard/stats`, { credentials: 'include' }),
         fetch(`${API}/dashboard/cost-by-feature`, { credentials: 'include' }),
@@ -57,6 +95,21 @@ export default function Dashboard() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const generateEmptyDailyData = () => {
+    const data = [];
+    const now = new Date();
+    for (let i = 0; i < 30; i++) {
+      const day = new Date(now);
+      day.setDate(day.getDate() - (29 - i));
+      data.push({
+        day: i + 1,
+        date: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        spend: 0
+      });
+    }
+    return data;
   };
 
   const formatCurrency = (value) => {
@@ -103,6 +156,39 @@ export default function Dashboard() {
   return (
     <Layout>
       <div className="space-y-8" data-testid="dashboard-page">
+        {/* Setup Prompt - Show when no providers connected */}
+        {connectedProviders.length === 0 && (
+          <Card className="border-sky-200 bg-sky-50 shadow-sm" data-testid="setup-prompt">
+            <CardContent className="p-6">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 bg-sky-100 rounded-xl flex items-center justify-center flex-shrink-0">
+                  <AlertCircle className="w-6 h-6 text-sky-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="font-semibold text-slate-900 mb-1">Connect your AI providers to start tracking</h3>
+                  <p className="text-slate-600 text-sm mb-4">
+                    You're viewing demo data. Add your Claude, OpenAI, or other API keys in Settings to see your real usage and costs.
+                  </p>
+                  <Link to="/settings">
+                    <Button className="bg-slate-900 hover:bg-slate-800" data-testid="setup-settings-button">
+                      <Settings className="w-4 h-4 mr-2" />
+                      Go to Settings
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Data Mode Badge */}
+        {connectedProviders.length > 0 && !hasRealData && (
+          <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 px-4 py-2 rounded-lg border border-amber-200">
+            <AlertCircle className="w-4 h-4" />
+            <span>Providers connected but no API calls tracked yet. Use the proxy endpoints to start tracking.</span>
+          </div>
+        )}
+
         {/* Page Header */}
         <div>
           <h1 className="text-3xl font-bold text-slate-900 font-['Manrope'] tracking-tight" data-testid="dashboard-title">
