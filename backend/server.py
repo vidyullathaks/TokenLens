@@ -733,6 +733,163 @@ async def remove_provider(request: Request, provider_id: str):
     
     return {"status": "disconnected", "provider_id": provider_id}
 
+@api_router.post("/settings/providers/{provider_id}/test")
+async def test_provider_connection(request: Request, provider_id: str):
+    """Test a provider connection by making a minimal API call"""
+    user = await get_current_user(request)
+    
+    # Get user's API key for this provider
+    provider = await db.user_providers.find_one(
+        {"user_id": user.user_id, "provider_id": provider_id},
+        {"_id": 0}
+    )
+    
+    if not provider:
+        raise HTTPException(status_code=404, detail="Provider not connected")
+    
+    api_key = decrypt_api_key(provider["encrypted_key"])
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            if provider_id == "anthropic":
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json={
+                        "model": "claude-3-haiku-20240307",
+                        "max_tokens": 10,
+                        "messages": [{"role": "user", "content": "Say 'TokenLens test successful' in 5 words or less"}]
+                    }
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    usage = data.get("usage", {})
+                    input_tokens = usage.get("input_tokens", 0)
+                    output_tokens = usage.get("output_tokens", 0)
+                    cost = calculate_cost("anthropic", "claude-3-haiku-20240307", input_tokens, output_tokens)
+                    
+                    # Log this test call
+                    await log_api_call(
+                        user_id=user.user_id,
+                        provider_id="anthropic",
+                        model="claude-3-haiku-20240307",
+                        feature="connection-test",
+                        end_user="system",
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cost=cost
+                    )
+                    
+                    content = data.get("content", [{}])[0].get("text", "")
+                    return {
+                        "success": True,
+                        "message": content,
+                        "tokens": input_tokens + output_tokens,
+                        "cost": cost
+                    }
+                else:
+                    error_data = response.json()
+                    error_msg = error_data.get("error", {}).get("message", "Unknown error")
+                    if "credit balance" in error_msg.lower():
+                        return {
+                            "success": False,
+                            "error": "Your Anthropic account has insufficient credits. Please add credits at console.anthropic.com"
+                        }
+                    return {"success": False, "error": error_msg}
+                    
+            elif provider_id == "openai":
+                response = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": "gpt-3.5-turbo",
+                        "max_tokens": 10,
+                        "messages": [{"role": "user", "content": "Say 'TokenLens test successful' in 5 words or less"}]
+                    }
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    usage = data.get("usage", {})
+                    input_tokens = usage.get("prompt_tokens", 0)
+                    output_tokens = usage.get("completion_tokens", 0)
+                    cost = calculate_cost("openai", "gpt-3.5-turbo", input_tokens, output_tokens)
+                    
+                    await log_api_call(
+                        user_id=user.user_id,
+                        provider_id="openai",
+                        model="gpt-3.5-turbo",
+                        feature="connection-test",
+                        end_user="system",
+                        input_tokens=input_tokens,
+                        output_tokens=output_tokens,
+                        cost=cost
+                    )
+                    
+                    content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+                    return {
+                        "success": True,
+                        "message": content,
+                        "tokens": input_tokens + output_tokens,
+                        "cost": cost
+                    }
+                else:
+                    error_data = response.json()
+                    return {"success": False, "error": error_data.get("error", {}).get("message", "Unknown error")}
+                    
+            elif provider_id == "google":
+                response = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}",
+                    json={
+                        "contents": [{"parts": [{"text": "Say 'TokenLens test successful' in 5 words or less"}]}],
+                        "generationConfig": {"maxOutputTokens": 10}
+                    }
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    # Google doesn't return token counts in the same way, estimate
+                    content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    estimated_tokens = len(content.split()) * 2
+                    cost = calculate_cost("google", "gemini-pro", 10, estimated_tokens)
+                    
+                    await log_api_call(
+                        user_id=user.user_id,
+                        provider_id="google",
+                        model="gemini-pro",
+                        feature="connection-test",
+                        end_user="system",
+                        input_tokens=10,
+                        output_tokens=estimated_tokens,
+                        cost=cost
+                    )
+                    
+                    return {
+                        "success": True,
+                        "message": content,
+                        "tokens": estimated_tokens,
+                        "cost": cost
+                    }
+                else:
+                    return {"success": False, "error": f"Google AI error: {response.status_code}"}
+            
+            else:
+                return {"success": False, "error": f"Test not implemented for {provider_id}"}
+                
+        except httpx.TimeoutException:
+            return {"success": False, "error": "Request timed out"}
+        except Exception as e:
+            logger.error(f"Test connection error: {e}")
+            return {"success": False, "error": str(e)}
+
 # ==================== Proxy Endpoints ====================
 
 async def get_user_provider_key(user_id: str, provider_id: str) -> Optional[str]:

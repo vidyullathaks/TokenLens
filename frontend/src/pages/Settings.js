@@ -20,7 +20,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '../components/ui/accordion';
-import { Eye, EyeOff, Plus, Trash2, ExternalLink, Check, AlertCircle } from 'lucide-react';
+import { Eye, EyeOff, Plus, Trash2, ExternalLink, Check, AlertCircle, Zap, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -124,6 +124,7 @@ export default function Settings() {
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [showKeys, setShowKeys] = useState({});
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState({});
 
   useEffect(() => {
     fetchConnectedProviders();
@@ -140,6 +141,35 @@ export default function Settings() {
       console.error('Error fetching providers:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const testConnection = async (providerId) => {
+    setTesting(prev => ({ ...prev, [providerId]: true }));
+    try {
+      const response = await fetch(`${API}/settings/providers/${providerId}/test`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      
+      const data = await response.json();
+      
+      if (data.success) {
+        toast.success(
+          <div>
+            <p className="font-medium">Connection successful!</p>
+            <p className="text-sm text-slate-600">Response: "{data.message}"</p>
+            <p className="text-sm text-slate-600">Tokens: {data.tokens} | Cost: ${data.cost.toFixed(6)}</p>
+          </div>
+        );
+      } else {
+        toast.error(data.error || 'Test failed');
+      }
+    } catch (error) {
+      console.error('Test connection error:', error);
+      toast.error('Failed to test connection');
+    } finally {
+      setTesting(prev => ({ ...prev, [providerId]: false }));
     }
   };
 
@@ -419,15 +449,32 @@ export default function Settings() {
                           </div>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => removeProvider(provider.provider_id)}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                        data-testid={`remove-provider-${provider.provider_id}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => testConnection(provider.provider_id)}
+                          disabled={testing[provider.provider_id]}
+                          className="border-slate-200"
+                          data-testid={`test-provider-${provider.provider_id}`}
+                        >
+                          {testing[provider.provider_id] ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Zap className="w-4 h-4 mr-1" />
+                          )}
+                          {testing[provider.provider_id] ? 'Testing...' : 'Test'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => removeProvider(provider.provider_id)}
+                          className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                          data-testid={`remove-provider-${provider.provider_id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   );
                 })}
