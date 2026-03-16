@@ -1355,6 +1355,16 @@ async def root():
 async def health():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
+@api_router.get("/debug-db")
+async def debug_db():
+    """Temporary debug endpoint to test MongoDB connectivity"""
+    import traceback
+    try:
+        result = await db.users.find_one({}, {"_id": 0, "email": 1})
+        return {"status": "db_ok", "sample": str(result)[:100] if result else None}
+    except Exception as e:
+        return {"status": "db_error", "error": str(e), "type": type(e).__name__, "tb": traceback.format_exc()[-500:]}
+
 # Include router
 app.include_router(api_router)
 
