@@ -664,7 +664,7 @@ async def validate_provider_api_key(provider_id: str, api_key: str) -> Optional[
             elif provider_id == "google":
                 # Test Google AI key with a minimal request
                 response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
                     json={
                         "contents": [{"parts": [{"text": "Hi"}]}],
                         "generationConfig": {"maxOutputTokens": 1}
@@ -843,24 +843,24 @@ async def test_provider_connection(request: Request, provider_id: str):
                     
             elif provider_id == "google":
                 response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
                     json={
                         "contents": [{"parts": [{"text": "Say 'TokenLens test successful' in 5 words or less"}]}],
                         "generationConfig": {"maxOutputTokens": 10}
                     }
                 )
-                
+
                 if response.status_code == 200:
                     data = response.json()
                     # Google doesn't return token counts in the same way, estimate
                     content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                     estimated_tokens = len(content.split()) * 2
-                    cost = calculate_cost("google", "gemini-pro", 10, estimated_tokens)
-                    
+                    cost = calculate_cost("google", "gemini-1.5-flash", 10, estimated_tokens)
+
                     await log_api_call(
                         user_id=user.user_id,
                         provider_id="google",
-                        model="gemini-pro",
+                        model="gemini-1.5-flash",
                         feature="connection-test",
                         end_user="system",
                         input_tokens=10,
@@ -875,7 +875,12 @@ async def test_provider_connection(request: Request, provider_id: str):
                         "cost": cost
                     }
                 else:
-                    return {"success": False, "error": f"Google AI error: {response.status_code}"}
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("error", {}).get("message", f"Google AI error: {response.status_code}")
+                    except Exception:
+                        error_msg = f"Google AI error: {response.status_code}"
+                    return {"success": False, "error": error_msg}
             
             else:
                 return {"success": False, "error": f"Test not implemented for {provider_id}"}
