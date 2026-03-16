@@ -49,7 +49,7 @@ export default function Dashboard() {
         const providers = await providersRes.json();
         setConnectedProviders(providers);
         
-        // If providers connected, try to get real data first
+        // If providers connected, only show real data (no fallback to demo)
         if (providers.length > 0) {
           const realStatsRes = await fetch(`${API}/dashboard/real-stats`, { credentials: 'include' });
           if (realStatsRes.ok) {
@@ -70,29 +70,32 @@ export default function Dashboard() {
               // Generate daily data placeholder
               setDailySpend(generateEmptyDailyData());
               setTopUsers([]);
-              return;
+            } else {
+              // Providers connected but no calls yet - show zeros
+              setHasRealData(false);
+              setStats({
+                total_spend: 0,
+                spend_change: 0,
+                api_calls: 0,
+                calls_change: 0,
+                avg_cost_per_call: 0,
+                active_features: 0
+              });
+              setCostByFeature([]);
+              setDailySpend(generateEmptyDailyData());
+              setTopUsers([]);
+              setRecentCalls([]);
             }
           }
+          setLoading(false);
+          return;
         }
       }
       
-      // Fall back to demo data
-      const [statsRes, featureRes, dailyRes, usersRes, callsRes] = await Promise.all([
-        fetch(`${API}/dashboard/stats`, { credentials: 'include' }),
-        fetch(`${API}/dashboard/cost-by-feature`, { credentials: 'include' }),
-        fetch(`${API}/dashboard/daily-spend`, { credentials: 'include' }),
-        fetch(`${API}/dashboard/top-users`, { credentials: 'include' }),
-        fetch(`${API}/dashboard/recent-calls`, { credentials: 'include' })
-      ]);
-
-      if (statsRes.ok) setStats(await statsRes.json());
-      if (featureRes.ok) setCostByFeature(await featureRes.json());
-      if (dailyRes.ok) setDailySpend(await dailyRes.json());
-      if (usersRes.ok) setTopUsers(await usersRes.json());
-      if (callsRes.ok) setRecentCalls(await callsRes.json());
+      // No providers connected - don't load any data, the empty state will show
+      setLoading(false);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
-    } finally {
       setLoading(false);
     }
   };
@@ -153,35 +156,81 @@ export default function Dashboard() {
     );
   }
 
-  return (
-    <Layout>
-      <div className="space-y-8" data-testid="dashboard-page">
-        {/* Setup Prompt - Show when no providers connected */}
-        {connectedProviders.length === 0 && (
-          <Card className="border-sky-200 bg-sky-50 shadow-sm" data-testid="setup-prompt">
-            <CardContent className="p-6">
-              <div className="flex items-start gap-4">
-                <div className="w-12 h-12 bg-sky-100 rounded-xl flex items-center justify-center flex-shrink-0">
-                  <AlertCircle className="w-6 h-6 text-sky-600" />
+  // Show only setup prompt when no providers connected
+  if (connectedProviders.length === 0) {
+    return (
+      <Layout>
+        <div className="space-y-8" data-testid="dashboard-page">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900 font-['Manrope'] tracking-tight" data-testid="dashboard-title">
+              Dashboard
+            </h1>
+            <p className="text-slate-500 mt-1">Your API cost intelligence at a glance</p>
+          </div>
+
+          {/* Setup Required Card */}
+          <Card className="border-slate-200 shadow-sm" data-testid="setup-required">
+            <CardContent className="p-12 text-center">
+              <div className="w-16 h-16 bg-sky-100 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                <Settings className="w-8 h-8 text-sky-600" />
+              </div>
+              <h2 className="text-2xl font-bold text-slate-900 mb-3 font-['Manrope']">
+                Connect your AI provider to get started
+              </h2>
+              <p className="text-slate-600 mb-6 max-w-md mx-auto">
+                Add your Claude, OpenAI, Gemini, or other AI provider API keys to start tracking your usage and costs in real-time.
+              </p>
+              <Link to="/settings">
+                <Button size="lg" className="bg-slate-900 hover:bg-slate-800" data-testid="setup-settings-button">
+                  <Settings className="w-5 h-5 mr-2" />
+                  Add Your API Keys
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+
+          {/* How It Works Section */}
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold text-slate-900 font-['Manrope']">
+                How TokenLens Works
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid md:grid-cols-3 gap-6">
+                <div className="text-center p-4">
+                  <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center mx-auto mb-3">
+                    <span className="text-lg font-bold text-slate-600">1</span>
+                  </div>
+                  <h3 className="font-medium text-slate-900 mb-1">Add your API key</h3>
+                  <p className="text-sm text-slate-500">Go to Settings and add your Claude, OpenAI, or other provider API keys</p>
                 </div>
-                <div className="flex-1">
-                  <h3 className="font-semibold text-slate-900 mb-1">Connect your AI providers to start tracking</h3>
-                  <p className="text-slate-600 text-sm mb-4">
-                    You're viewing demo data. Add your Claude, OpenAI, or other API keys in Settings to see your real usage and costs.
-                  </p>
-                  <Link to="/settings">
-                    <Button className="bg-slate-900 hover:bg-slate-800" data-testid="setup-settings-button">
-                      <Settings className="w-4 h-4 mr-2" />
-                      Go to Settings
-                    </Button>
-                  </Link>
+                <div className="text-center p-4">
+                  <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center mx-auto mb-3">
+                    <span className="text-lg font-bold text-slate-600">2</span>
+                  </div>
+                  <h3 className="font-medium text-slate-900 mb-1">Route calls through TokenLens</h3>
+                  <p className="text-sm text-slate-500">Change your base URL to use our proxy and add tracking headers</p>
+                </div>
+                <div className="text-center p-4">
+                  <div className="w-10 h-10 bg-slate-100 rounded-lg flex items-center justify-center mx-auto mb-3">
+                    <span className="text-lg font-bold text-slate-600">3</span>
+                  </div>
+                  <h3 className="font-medium text-slate-900 mb-1">See your costs</h3>
+                  <p className="text-sm text-slate-500">Watch your dashboard populate with real cost data by feature and user</p>
                 </div>
               </div>
             </CardContent>
           </Card>
-        )}
+        </div>
+      </Layout>
+    );
+  }
 
-        {/* Data Mode Badge */}
+  return (
+    <Layout>
+      <div className="space-y-8" data-testid="dashboard-page">
+        {/* Data Mode Badge - Show when providers connected but no calls yet */}
         {connectedProviders.length > 0 && !hasRealData && (
           <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 px-4 py-2 rounded-lg border border-amber-200">
             <AlertCircle className="w-4 h-4" />
@@ -205,21 +254,23 @@ export default function Dashboard() {
                 <div>
                   <p className="text-sm font-medium text-slate-500 uppercase tracking-wider">Total Spend This Month</p>
                   <p className="text-3xl font-bold text-slate-900 mt-2 font-['Manrope']">
-                    {formatCurrency(stats?.total_spend || 284.17)}
+                    {formatCurrency(stats?.total_spend ?? 0)}
                   </p>
                   <div className="flex items-center mt-2 text-sm">
-                    {(stats?.spend_change || 12) > 0 ? (
+                    {(stats?.spend_change ?? 0) > 0 ? (
                       <>
                         <TrendingUp className="w-4 h-4 text-emerald-500 mr-1" />
-                        <span className="text-emerald-600 font-medium">+{stats?.spend_change || 12}%</span>
+                        <span className="text-emerald-600 font-medium">+{stats?.spend_change ?? 0}%</span>
                       </>
-                    ) : (
+                    ) : (stats?.spend_change ?? 0) < 0 ? (
                       <>
                         <TrendingDown className="w-4 h-4 text-red-500 mr-1" />
                         <span className="text-red-600 font-medium">{stats?.spend_change}%</span>
                       </>
+                    ) : (
+                      <span className="text-slate-400">No change</span>
                     )}
-                    <span className="text-slate-400 ml-1">vs last month</span>
+                    {(stats?.spend_change ?? 0) !== 0 && <span className="text-slate-400 ml-1">vs last month</span>}
                   </div>
                 </div>
                 <div className="w-12 h-12 bg-sky-100 rounded-xl flex items-center justify-center">
@@ -235,12 +286,18 @@ export default function Dashboard() {
                 <div>
                   <p className="text-sm font-medium text-slate-500 uppercase tracking-wider">API Calls</p>
                   <p className="text-3xl font-bold text-slate-900 mt-2 font-['Manrope']">
-                    {(stats?.api_calls || 14382).toLocaleString()}
+                    {(stats?.api_calls ?? 0).toLocaleString()}
                   </p>
                   <div className="flex items-center mt-2 text-sm">
-                    <TrendingUp className="w-4 h-4 text-emerald-500 mr-1" />
-                    <span className="text-emerald-600 font-medium">+{stats?.calls_change || 8}%</span>
-                    <span className="text-slate-400 ml-1">vs last month</span>
+                    {(stats?.calls_change ?? 0) > 0 ? (
+                      <>
+                        <TrendingUp className="w-4 h-4 text-emerald-500 mr-1" />
+                        <span className="text-emerald-600 font-medium">+{stats?.calls_change ?? 0}%</span>
+                        <span className="text-slate-400 ml-1">vs last month</span>
+                      </>
+                    ) : (
+                      <span className="text-slate-400">This month</span>
+                    )}
                   </div>
                 </div>
                 <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center">
@@ -256,7 +313,7 @@ export default function Dashboard() {
                 <div>
                   <p className="text-sm font-medium text-slate-500 uppercase tracking-wider">Avg Cost per Call</p>
                   <p className="text-3xl font-bold text-slate-900 mt-2 font-['Manrope']">
-                    ${(stats?.avg_cost_per_call || 0.0197).toFixed(4)}
+                    ${(stats?.avg_cost_per_call ?? 0).toFixed(4)}
                   </p>
                   <div className="flex items-center mt-2 text-sm">
                     <span className="text-slate-400">Per API request</span>
@@ -275,7 +332,7 @@ export default function Dashboard() {
                 <div>
                   <p className="text-sm font-medium text-slate-500 uppercase tracking-wider">Active Features</p>
                   <p className="text-3xl font-bold text-slate-900 mt-2 font-['Manrope']">
-                    {stats?.active_features || 7}
+                    {stats?.active_features ?? 0}
                   </p>
                   <div className="flex items-center mt-2 text-sm">
                     <span className="text-slate-400">Tracked features</span>
