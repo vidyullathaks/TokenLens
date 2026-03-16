@@ -4,5 +4,10 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.py" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
-  ]
+  ],
+  "functions": {
+    "api/index.py": {
+      "includeFiles": "backend/**"
+    }
+  }
 }
