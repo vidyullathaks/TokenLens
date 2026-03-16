@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger 
 } from './ui/dropdown-menu';
 import { Avatar, AvatarFallback, AvatarImage } from './ui/avatar';
-import { LayoutDashboard, Key, Bell, LogOut, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, Key, Bell, LogOut, ChevronDown, Settings } from 'lucide-react';
 
 export function Layout({ children }) {
   const { user, logout } = useAuth();
@@ -18,7 +18,8 @@ export function Layout({ children }) {
   const navLinks = [
     { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/api-keys', label: 'API Keys', icon: Key },
-    { path: '/alerts', label: 'Alerts', icon: Bell }
+    { path: '/alerts', label: 'Alerts', icon: Bell },
+    { path: '/settings', label: 'Settings', icon: Settings }
   ];
 
   const isActive = (path) => location.pathname === path;

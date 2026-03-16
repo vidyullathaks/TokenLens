@@ -6,8 +6,8 @@ from datetime import datetime
 class TokenLensAPITester:
     def __init__(self, base_url="https://ai-billing-hub-1.preview.emergentagent.com"):
         self.base_url = base_url
-        self.session_token = "test_session_1773632670732"
-        self.user_id = "test-user-1773632670732"
+        self.session_token = "test_session_1773632793480"
+        self.user_id = "test-user-1773632793480"
         self.api_key = "tl_live_yycdht8rq69"
         self.tests_run = 0
         self.tests_passed = 0
@@ -33,8 +33,8 @@ class TokenLensAPITester:
                 response = requests.get(url, headers=default_headers)
             elif method == 'POST':
                 response = requests.post(url, json=data, headers=default_headers)
-            elif method == 'PUT':
-                response = requests.put(url, json=data, headers=default_headers)
+            elif method == 'DELETE':
+                response = requests.delete(url, headers=default_headers)
 
             success = response.status_code == expected_status
             if success:
@@ -114,6 +114,58 @@ class TokenLensAPITester:
         }
         self.run_test("Update alert config", "POST", "/alerts/config", 200, alert_config)
 
+    def test_settings_providers_endpoints(self):
+        """Test Settings/Providers CRUD operations"""
+        print("\n" + "="*50)
+        print("TESTING SETTINGS/PROVIDERS ENDPOINTS")
+        print("="*50)
+        
+        # Test getting connected providers (should be empty for new user)
+        success, providers = self.run_test("Get connected providers", "GET", "/settings/providers", 200)
+        
+        if success:
+            print(f"   Initial providers count: {len(providers) if isinstance(providers, list) else 0}")
+        
+        # Test adding a provider (using dummy API key as suggested)
+        provider_data = {
+            "provider_id": "anthropic",
+            "api_key": "sk-ant-api03-test12345678901234567890"
+        }
+        add_success, add_response = self.run_test("Add Anthropic provider", "POST", "/settings/providers", 200, provider_data)
+        
+        # Test getting providers after adding one
+        success, providers_after = self.run_test("Get providers after adding", "GET", "/settings/providers", 200)
+        if success and isinstance(providers_after, list):
+            print(f"   Providers count after add: {len(providers_after)}")
+            if len(providers_after) > 0:
+                print(f"   Added provider ID: {providers_after[0].get('provider_id', 'unknown')}")
+        
+        # Test adding another provider (OpenAI)
+        openai_data = {
+            "provider_id": "openai", 
+            "api_key": "sk-test12345678901234567890"
+        }
+        self.run_test("Add OpenAI provider", "POST", "/settings/providers", 200, openai_data)
+        
+        # Test invalid provider
+        invalid_data = {
+            "provider_id": "invalid_provider",
+            "api_key": "test-key"
+        }
+        self.run_test("Add invalid provider", "POST", "/settings/providers", 400, invalid_data)
+        
+        # Test missing API key
+        missing_key_data = {
+            "provider_id": "google"
+        }
+        self.run_test("Add provider without API key", "POST", "/settings/providers", 400, missing_key_data)
+        
+        # Test removing a provider
+        self.run_test("Remove Anthropic provider", "DELETE", "/settings/providers/anthropic", 200)
+        
+        # Test removing non-existent provider
+        self.run_test("Remove non-existent provider", "DELETE", "/settings/providers/nonexistent", 404)
+        
     def test_unauthenticated_access(self):
         """Test that endpoints require authentication"""
         print("\n" + "="*50)
@@ -126,6 +178,7 @@ class TokenLensAPITester:
         
         self.run_test("Dashboard without auth", "GET", "/dashboard/stats", 401)
         self.run_test("API keys without auth", "GET", "/api-keys", 401)
+        self.run_test("Settings providers without auth", "GET", "/settings/providers", 401)
         
         # Restore auth
         self.session_token = original_token
@@ -142,6 +195,7 @@ class TokenLensAPITester:
         self.test_dashboard_endpoints()
         self.test_api_keys_endpoints()
         self.test_alerts_endpoints()
+        self.test_settings_providers_endpoints()  # Add the new test
         self.test_unauthenticated_access()
         
         # Print summary

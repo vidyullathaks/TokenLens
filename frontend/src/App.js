@@ -8,6 +8,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import ApiKeys from "./pages/ApiKeys";
 import Alerts from "./pages/Alerts";
+import Settings from "./pages/Settings";
 
 // Router component that handles session_id detection
 function AppRouter() {
@@ -45,6 +46,14 @@ function AppRouter() {
         element={
           <ProtectedRoute>
             <Alerts />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/settings"
+        element={
+          <ProtectedRoute>
+            <Settings />
           </ProtectedRoute>
         }
       />

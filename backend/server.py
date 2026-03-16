@@ -7,10 +7,13 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime, timezone, timedelta
 import httpx
+import base64
+from cryptography.fernet import Fernet
+import hashlib
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -19,6 +22,64 @@ load_dotenv(ROOT_DIR / '.env')
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
+
+# Encryption key for API keys (generate a consistent key from a secret)
+ENCRYPTION_SECRET = os.environ.get('ENCRYPTION_SECRET', 'tokenlens-default-secret-key-change-in-prod')
+# Create a 32-byte key from the secret
+key_bytes = hashlib.sha256(ENCRYPTION_SECRET.encode()).digest()
+FERNET_KEY = base64.urlsafe_b64encode(key_bytes)
+fernet = Fernet(FERNET_KEY)
+
+def encrypt_api_key(api_key: str) -> str:
+    """Encrypt an API key for storage"""
+    return fernet.encrypt(api_key.encode()).decode()
+
+def decrypt_api_key(encrypted_key: str) -> str:
+    """Decrypt an API key for use"""
+    return fernet.decrypt(encrypted_key.encode()).decode()
+
+def mask_api_key(api_key: str) -> str:
+    """Create a masked version of the API key for display"""
+    if len(api_key) <= 12:
+        return api_key[:4] + '••••' + api_key[-4:]
+    return api_key[:8] + '••••••••' + api_key[-4:]
+
+# Provider pricing (cost per 1K tokens)
+PROVIDER_PRICING = {
+    'anthropic': {
+        'claude-3-opus-20240229': {'input': 0.015, 'output': 0.075},
+        'claude-3-sonnet-20240229': {'input': 0.003, 'output': 0.015},
+        'claude-3-haiku-20240307': {'input': 0.00025, 'output': 0.00125},
+        'claude-3-5-sonnet-20241022': {'input': 0.003, 'output': 0.015},
+        'default': {'input': 0.003, 'output': 0.015}
+    },
+    'openai': {
+        'gpt-4': {'input': 0.03, 'output': 0.06},
+        'gpt-4-turbo': {'input': 0.01, 'output': 0.03},
+        'gpt-4-turbo-preview': {'input': 0.01, 'output': 0.03},
+        'gpt-3.5-turbo': {'input': 0.0005, 'output': 0.0015},
+        'gpt-4o': {'input': 0.005, 'output': 0.015},
+        'gpt-4o-mini': {'input': 0.00015, 'output': 0.0006},
+        'default': {'input': 0.01, 'output': 0.03}
+    },
+    'google': {
+        'gemini-pro': {'input': 0.00025, 'output': 0.0005},
+        'gemini-1.5-pro': {'input': 0.00125, 'output': 0.005},
+        'gemini-1.5-flash': {'input': 0.000075, 'output': 0.0003},
+        'default': {'input': 0.00025, 'output': 0.0005}
+    },
+    'cohere': {
+        'command': {'input': 0.001, 'output': 0.002},
+        'command-light': {'input': 0.0003, 'output': 0.0006},
+        'default': {'input': 0.001, 'output': 0.002}
+    },
+    'mistral': {
+        'mistral-large': {'input': 0.004, 'output': 0.012},
+        'mistral-medium': {'input': 0.0027, 'output': 0.0081},
+        'mistral-small': {'input': 0.001, 'output': 0.003},
+        'default': {'input': 0.001, 'output': 0.003}
+    }
+}
 
 # Create the main app
 app = FastAPI()
@@ -482,6 +543,446 @@ async def get_alert_history(request: Request):
         ]
     
     return history
+
+# ==================== Settings/Provider Endpoints ====================
+
+@api_router.get("/settings/providers")
+async def get_connected_providers(request: Request):
+    """Get user's connected AI providers"""
+    user = await get_current_user(request)
+    
+    providers = await db.user_providers.find(
+        {"user_id": user.user_id},
+        {"_id": 0, "encrypted_key": 0}  # Don't return the actual encrypted key
+    ).to_list(100)
+    
+    return providers
+
+@api_router.post("/settings/providers")
+async def add_provider(request: Request):
+    """Add or update an AI provider connection"""
+    user = await get_current_user(request)
+    body = await request.json()
+    
+    provider_id = body.get("provider_id")
+    api_key = body.get("api_key")
+    
+    if not provider_id or not api_key:
+        raise HTTPException(status_code=400, detail="provider_id and api_key are required")
+    
+    # Validate provider_id
+    valid_providers = ['anthropic', 'openai', 'google', 'cohere', 'mistral']
+    if provider_id not in valid_providers:
+        raise HTTPException(status_code=400, detail=f"Invalid provider. Must be one of: {valid_providers}")
+    
+    # Validate API key format (basic check)
+    if len(api_key) < 10:
+        raise HTTPException(status_code=400, detail="Invalid API key format")
+    
+    # Encrypt the API key
+    encrypted_key = encrypt_api_key(api_key)
+    masked_key = mask_api_key(api_key)
+    
+    # Check if provider already exists for user
+    existing = await db.user_providers.find_one(
+        {"user_id": user.user_id, "provider_id": provider_id}
+    )
+    
+    if existing:
+        # Update existing provider
+        await db.user_providers.update_one(
+            {"user_id": user.user_id, "provider_id": provider_id},
+            {"$set": {
+                "encrypted_key": encrypted_key,
+                "masked_key": masked_key,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+    else:
+        # Add new provider
+        await db.user_providers.insert_one({
+            "user_id": user.user_id,
+            "provider_id": provider_id,
+            "encrypted_key": encrypted_key,
+            "masked_key": masked_key,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": datetime.now(timezone.utc).isoformat()
+        })
+    
+    return {"status": "connected", "provider_id": provider_id}
+
+@api_router.delete("/settings/providers/{provider_id}")
+async def remove_provider(request: Request, provider_id: str):
+    """Remove an AI provider connection"""
+    user = await get_current_user(request)
+    
+    result = await db.user_providers.delete_one({
+        "user_id": user.user_id,
+        "provider_id": provider_id
+    })
+    
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Provider not found")
+    
+    return {"status": "disconnected", "provider_id": provider_id}
+
+# ==================== Proxy Endpoints ====================
+
+async def get_user_provider_key(user_id: str, provider_id: str) -> Optional[str]:
+    """Get decrypted API key for a user's provider"""
+    provider = await db.user_providers.find_one(
+        {"user_id": user_id, "provider_id": provider_id},
+        {"_id": 0}
+    )
+    
+    if not provider:
+        return None
+    
+    return decrypt_api_key(provider["encrypted_key"])
+
+def calculate_cost(provider_id: str, model: str, input_tokens: int, output_tokens: int) -> float:
+    """Calculate cost based on provider pricing"""
+    pricing = PROVIDER_PRICING.get(provider_id, {})
+    model_pricing = pricing.get(model, pricing.get('default', {'input': 0.001, 'output': 0.002}))
+    
+    input_cost = (input_tokens / 1000) * model_pricing['input']
+    output_cost = (output_tokens / 1000) * model_pricing['output']
+    
+    return round(input_cost + output_cost, 6)
+
+async def log_api_call(user_id: str, provider_id: str, model: str, feature: str, 
+                       end_user: str, input_tokens: int, output_tokens: int, cost: float):
+    """Log an API call for tracking"""
+    call_record = {
+        "call_id": f"call_{uuid.uuid4().hex[:12]}",
+        "owner_id": user_id,
+        "provider_id": provider_id,
+        "model": model,
+        "feature": feature or "default",
+        "end_user": end_user or "anonymous",
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "total_tokens": input_tokens + output_tokens,
+        "cost": cost,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.api_calls.insert_one(call_record)
+    
+    # Update aggregated stats
+    await update_user_stats(user_id, provider_id, model, feature, cost, input_tokens + output_tokens)
+
+async def update_user_stats(user_id: str, provider_id: str, model: str, feature: str, cost: float, tokens: int):
+    """Update user's aggregated statistics"""
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    
+    # Update or create daily stats
+    await db.daily_stats.update_one(
+        {"user_id": user_id, "date": today},
+        {
+            "$inc": {"total_cost": cost, "total_calls": 1, "total_tokens": tokens},
+            "$setOnInsert": {"user_id": user_id, "date": today}
+        },
+        upsert=True
+    )
+    
+    # Update feature stats
+    await db.feature_stats.update_one(
+        {"user_id": user_id, "feature": feature},
+        {
+            "$inc": {"total_cost": cost, "total_calls": 1},
+            "$setOnInsert": {"user_id": user_id, "feature": feature}
+        },
+        upsert=True
+    )
+    
+    # Update provider stats
+    await db.provider_stats.update_one(
+        {"user_id": user_id, "provider_id": provider_id},
+        {
+            "$inc": {"total_cost": cost, "total_calls": 1},
+            "$setOnInsert": {"user_id": user_id, "provider_id": provider_id}
+        },
+        upsert=True
+    )
+
+@api_router.post("/proxy/anthropic/v1/messages")
+async def proxy_anthropic(request: Request):
+    """Proxy requests to Anthropic API and track usage"""
+    # Get TokenLens headers
+    tl_key = request.headers.get("X-TL-Key")
+    tl_feature = request.headers.get("X-TL-Feature", "default")
+    tl_user = request.headers.get("X-TL-User", "anonymous")
+    
+    # Authenticate via TL key or session
+    user = None
+    if tl_key:
+        # Find user by API key
+        user_doc = await db.users.find_one({"api_key": tl_key}, {"_id": 0})
+        if user_doc:
+            user = User(**user_doc)
+    
+    if not user:
+        # Try session auth
+        try:
+            user = await get_current_user(request)
+        except HTTPException:
+            raise HTTPException(status_code=401, detail="Invalid TokenLens API key or session")
+    
+    # Get user's Anthropic API key
+    anthropic_key = await get_user_provider_key(user.user_id, "anthropic")
+    if not anthropic_key:
+        raise HTTPException(status_code=400, detail="Anthropic provider not connected. Add your API key in Settings.")
+    
+    # Get request body
+    body = await request.json()
+    model = body.get("model", "claude-3-sonnet-20240229")
+    
+    # Forward to Anthropic
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers={
+                    "x-api-key": anthropic_key,
+                    "anthropic-version": "2023-06-01",
+                    "content-type": "application/json"
+                },
+                json=body,
+                timeout=120.0
+            )
+            
+            response_data = response.json()
+            
+            # Extract token usage
+            usage = response_data.get("usage", {})
+            input_tokens = usage.get("input_tokens", 0)
+            output_tokens = usage.get("output_tokens", 0)
+            
+            # Calculate cost
+            cost = calculate_cost("anthropic", model, input_tokens, output_tokens)
+            
+            # Log the call
+            await log_api_call(
+                user_id=user.user_id,
+                provider_id="anthropic",
+                model=model,
+                feature=tl_feature,
+                end_user=tl_user,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost=cost
+            )
+            
+            # Add cost info to response
+            response_data["_tokenlens"] = {
+                "cost": cost,
+                "feature": tl_feature,
+                "user": tl_user
+            }
+            
+            return JSONResponse(content=response_data, status_code=response.status_code)
+            
+        except httpx.HTTPError as e:
+            logger.error(f"Anthropic API error: {e}")
+            raise HTTPException(status_code=502, detail=f"Anthropic API error: {str(e)}")
+
+@api_router.post("/proxy/openai/v1/chat/completions")
+async def proxy_openai(request: Request):
+    """Proxy requests to OpenAI API and track usage"""
+    # Get TokenLens headers
+    tl_key = request.headers.get("X-TL-Key")
+    tl_feature = request.headers.get("X-TL-Feature", "default")
+    tl_user = request.headers.get("X-TL-User", "anonymous")
+    
+    # Authenticate via TL key or session
+    user = None
+    if tl_key:
+        user_doc = await db.users.find_one({"api_key": tl_key}, {"_id": 0})
+        if user_doc:
+            user = User(**user_doc)
+    
+    if not user:
+        try:
+            user = await get_current_user(request)
+        except HTTPException:
+            raise HTTPException(status_code=401, detail="Invalid TokenLens API key or session")
+    
+    # Get user's OpenAI API key
+    openai_key = await get_user_provider_key(user.user_id, "openai")
+    if not openai_key:
+        raise HTTPException(status_code=400, detail="OpenAI provider not connected. Add your API key in Settings.")
+    
+    body = await request.json()
+    model = body.get("model", "gpt-4")
+    
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(
+                "https://api.openai.com/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {openai_key}",
+                    "Content-Type": "application/json"
+                },
+                json=body,
+                timeout=120.0
+            )
+            
+            response_data = response.json()
+            
+            usage = response_data.get("usage", {})
+            input_tokens = usage.get("prompt_tokens", 0)
+            output_tokens = usage.get("completion_tokens", 0)
+            
+            cost = calculate_cost("openai", model, input_tokens, output_tokens)
+            
+            await log_api_call(
+                user_id=user.user_id,
+                provider_id="openai",
+                model=model,
+                feature=tl_feature,
+                end_user=tl_user,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                cost=cost
+            )
+            
+            response_data["_tokenlens"] = {
+                "cost": cost,
+                "feature": tl_feature,
+                "user": tl_user
+            }
+            
+            return JSONResponse(content=response_data, status_code=response.status_code)
+            
+        except httpx.HTTPError as e:
+            logger.error(f"OpenAI API error: {e}")
+            raise HTTPException(status_code=502, detail=f"OpenAI API error: {str(e)}")
+
+# ==================== Real Dashboard Data ====================
+
+@api_router.get("/dashboard/real-stats")
+async def get_real_dashboard_stats(request: Request):
+    """Get real dashboard statistics from tracked API calls"""
+    user = await get_current_user(request)
+    
+    # Check if user has any connected providers
+    providers = await db.user_providers.find(
+        {"user_id": user.user_id},
+        {"_id": 0, "provider_id": 1}
+    ).to_list(100)
+    
+    if not providers:
+        return {"has_data": False, "message": "No providers connected"}
+    
+    # Get this month's stats
+    now = datetime.now(timezone.utc)
+    start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    # Aggregate stats from api_calls
+    pipeline = [
+        {
+            "$match": {
+                "owner_id": user.user_id,
+                "timestamp": {"$gte": start_of_month.isoformat()}
+            }
+        },
+        {
+            "$group": {
+                "_id": None,
+                "total_spend": {"$sum": "$cost"},
+                "api_calls": {"$sum": 1},
+                "total_tokens": {"$sum": "$total_tokens"}
+            }
+        }
+    ]
+    
+    result = await db.api_calls.aggregate(pipeline).to_list(1)
+    
+    if not result:
+        return {
+            "has_data": True,
+            "total_spend": 0,
+            "spend_change": 0,
+            "api_calls": 0,
+            "calls_change": 0,
+            "avg_cost_per_call": 0,
+            "active_features": 0,
+            "connected_providers": [p["provider_id"] for p in providers]
+        }
+    
+    stats = result[0]
+    total_spend = stats.get("total_spend", 0)
+    api_calls = stats.get("api_calls", 0)
+    
+    # Get unique features count
+    features = await db.api_calls.distinct("feature", {"owner_id": user.user_id})
+    
+    return {
+        "has_data": True,
+        "total_spend": round(total_spend, 2),
+        "spend_change": 0,  # Would need last month data to calculate
+        "api_calls": api_calls,
+        "calls_change": 0,
+        "avg_cost_per_call": round(total_spend / api_calls, 4) if api_calls > 0 else 0,
+        "active_features": len(features),
+        "connected_providers": [p["provider_id"] for p in providers]
+    }
+
+@api_router.get("/dashboard/real-cost-by-feature")
+async def get_real_cost_by_feature(request: Request):
+    """Get real cost breakdown by feature"""
+    user = await get_current_user(request)
+    
+    pipeline = [
+        {"$match": {"owner_id": user.user_id}},
+        {
+            "$group": {
+                "_id": "$feature",
+                "cost": {"$sum": "$cost"},
+                "calls": {"$sum": 1}
+            }
+        },
+        {"$sort": {"cost": -1}},
+        {"$limit": 10}
+    ]
+    
+    results = await db.api_calls.aggregate(pipeline).to_list(10)
+    
+    return [{"feature": r["_id"], "cost": round(r["cost"], 2), "calls": r["calls"]} for r in results]
+
+@api_router.get("/dashboard/real-cost-by-provider")
+async def get_real_cost_by_provider(request: Request):
+    """Get real cost breakdown by provider"""
+    user = await get_current_user(request)
+    
+    pipeline = [
+        {"$match": {"owner_id": user.user_id}},
+        {
+            "$group": {
+                "_id": "$provider_id",
+                "cost": {"$sum": "$cost"},
+                "calls": {"$sum": 1}
+            }
+        },
+        {"$sort": {"cost": -1}}
+    ]
+    
+    results = await db.api_calls.aggregate(pipeline).to_list(10)
+    
+    return [{"provider": r["_id"], "cost": round(r["cost"], 2), "calls": r["calls"]} for r in results]
+
+@api_router.get("/dashboard/real-recent-calls")
+async def get_real_recent_calls(request: Request):
+    """Get real recent API calls"""
+    user = await get_current_user(request)
+    
+    calls = await db.api_calls.find(
+        {"owner_id": user.user_id},
+        {"_id": 0}
+    ).sort("timestamp", -1).to_list(20)
+    
+    return calls
 
 # ==================== Helper Functions ====================
 
