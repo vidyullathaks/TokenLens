@@ -1,0 +1,137 @@
+{
+  "identity": {
+    "name": "E1",
+    "mission": "Create a distinct, high-performance SaaS dashboard that avoids generic 'AI slop'. Focus on clarity, data density, and a 'command center' aesthetic.",
+    "tone": "Swiss & High-Contrast (Authority, Clarity) mixed with The Performance Pro (Precision)."
+  },
+  "typography": {
+    "primary_font": "Manrope",
+    "secondary_font": "Inter",
+    "mono_font": "JetBrains Mono",
+    "usage": {
+      "headings": "Manrope (SemiBold/Bold), tracking-tight, slate-900",
+      "body": "Inter (Regular/Medium), slate-600",
+      "code": "JetBrains Mono (Regular), slate-700, bg-slate-50, px-1 rounded",
+      "kpi_values": "Manrope (Bold), text-3xl or 4xl, slate-900"
+    },
+    "scale": {
+      "h1": "text-4xl md:text-5xl font-bold tracking-tight",
+      "h2": "text-3xl font-semibold tracking-tight",
+      "h3": "text-2xl font-semibold tracking-tight",
+      "body": "text-sm or text-base leading-relaxed",
+      "label": "text-xs font-medium uppercase tracking-wider text-slate-500"
+    }
+  },
+  "colors": {
+    "palette": {
+      "primary": "#0f172a",
+      "secondary": "#334155",
+      "accent": "#0ea5e9",
+      "background": "#ffffff",
+      "surface": "#f8fafc",
+      "border": "#e2e8f0",
+      "success": "#10b981",
+      "warning": "#f59e0b",
+      "error": "#ef4444"
+    },
+    "usage": {
+      "header_bg": "bg-slate-900",
+      "header_text": "text-slate-50",
+      "sidebar_bg": "bg-white border-r border-slate-200",
+      "card_bg": "bg-white border border-slate-200 shadow-sm",
+      "main_bg": "bg-slate-50",
+      "primary_button": "bg-slate-900 text-white hover:bg-slate-800 shadow-md hover:shadow-lg transition-all",
+      "accent_text": "text-sky-600",
+      "accent_bg": "bg-sky-500",
+      "chart_colors": ["#0f172a", "#0ea5e9", "#94a3b8", "#cbd5e1", "#64748b"]
+    },
+    "dark_mode_strategy": "The prompt prioritizes a white content area with navy elements. Default to light mode, but ensure dark mode variables are set in `index.css` for future proofing. Dark mode should use slate-950 bg and slate-900 cards."
+  },
+  "layout": {
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "grid_system": "Use CSS Grid. For Dashboard: 'grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6'.",
+    "spacing": {
+      "section_gap": "gap-8",
+      "card_padding": "p-6",
+      "internal_padding": "p-4"
+    },
+    "z_index": {
+      "header": "z-50",
+      "modal": "z-50",
+      "tooltip": "z-60"
+    }
+  },
+  "components": {
+    "path": "/app/frontend/src/components/ui",
+    "style_rules": {
+      "card": "rounded-lg border border-slate-200 bg-white shadow-sm hover:shadow-md transition-shadow duration-200",
+      "button": "rounded-md font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2",
+      "input": "rounded-md border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-white file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2",
+      "table": "w-full caption-bottom text-sm",
+      "badge": "inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors focus:outline-none focus:ring-2 focus:ring-slate-950 focus:ring-offset-2 border-transparent bg-slate-900 text-slate-50 hover:bg-slate-900/80"
+    },
+    "custom_modifications": {
+      "tab_list": "h-auto p-1 bg-slate-100 rounded-lg",
+      "calendar": "Ensure customization to match brand colors"
+    }
+  },
+  "visual_enhancers": {
+    "shadows": "Use layered shadows for depth. 'shadow-sm' for cards, 'shadow-md' for active elements.",
+    "borders": "1px solid borders are critical for the 'Swiss' clean look. Use 'border-slate-200'.",
+    "glassmorphism": "Use sparingly. Only for sticky headers or floating overlays: 'bg-white/80 backdrop-blur-md border-b border-slate-200/50'.",
+    "micro_interactions": "Buttons scale down slightly on click ('active:scale-95'). Links have a subtle underline animation."
+  },
+  "motion": {
+    "library": "framer-motion",
+    "chart_library": "recharts",
+    "rules": [
+      "No 'transition: all'. Use specific properties.",
+      "Entrance animations: Staggered fade-in for dashboard cards.",
+      "Hover effects: Subtle lift (-2px) for interactive cards."
+    ]
+  },
+  "image_urls": {
+    "avatars": [
+      {
+        "url": "https://images.unsplash.com/photo-1588375252323-31bcac362c42?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBkZXZlbG9wZXIlMjBwb3J0cmFpdCUyMG1pbmltYWx8ZW58MHx8fHwxNzczNjMyMjI4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Developer Avatar 1",
+        "category": "user"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1595626259537-9510012e53ef?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjBkZXZlbG9wZXIlMjBwb3J0cmFpdCUyMG1pbmltYWx8ZW58MHx8fHwxNzczNjMyMjI4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Developer Avatar 2",
+        "category": "user"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1755140218961-2d548e1674a2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBkZXZlbG9wZXIlMjBwb3J0cmFpdCUyMG1pbmltYWx8ZW58MHx8fHwxNzczNjMyMjI4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Developer Avatar 3",
+        "category": "user"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1755140302411-9a7a9f523c1e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBkZXZlbG9wZXIlMjBwb3J0cmFpdCUyMG1pbmltYWx8ZW58MHx8fHwxNzczNjMyMjI4fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Developer Avatar 4",
+        "category": "user"
+      }
+    ],
+    "logos": []
+  },
+  "instructions_to_main_agent": {
+    "general": "Build a 'TokenLens' dashboard. It is an API cost intelligence tool. Use the provided colors and fonts. The aesthetic should be 'Navy & Teal' - clean, professional, and data-focused.",
+    "layout_structure": "Use a Top Navigation bar (Sticky, Navy Blue). The main content area is White/Gray. Use a Dashboard Grid layout for the main view.",
+    "mock_data": "Use realistic data for API costs (OpenAI/Anthropic models like gpt-4, claude-3-opus). Use the provided avatars for the 'Top Users' table.",
+    "charts": "Use 'recharts'. Customize the tooltips to be clean (white bg, shadow-lg, no border). Use the defined chart colors.",
+    "critical_files": [
+      "/app/frontend/src/App.js",
+      "/app/frontend/src/pages/Dashboard.js",
+      "/app/frontend/src/pages/ApiKeys.js",
+      "/app/frontend/src/pages/Alerts.js",
+      "/app/frontend/src/components/Layout.js"
+    ]
+  },
+  "universal_guidelines": {
+    "testing": "All interactive elements MUST have 'data-testid'.",
+    "css": "Do NOT use 'transition: all'. Use specific transitions. Ensure text contrast meets APCA/WCAG standards.",
+    "clean_code": "Remove unused CSS from App.css. Use Tailwind utility classes for layout and spacing.",
+    "imports": "Use named exports for components, default exports for pages."
+  }
+}
