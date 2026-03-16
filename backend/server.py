@@ -579,6 +579,11 @@ async def add_provider(request: Request):
     if len(api_key) < 10:
         raise HTTPException(status_code=400, detail="Invalid API key format")
     
+    # Validate API key by making a test request to the provider
+    validation_error = await validate_provider_api_key(provider_id, api_key)
+    if validation_error:
+        raise HTTPException(status_code=400, detail=validation_error)
+    
     # Encrypt the API key
     encrypted_key = encrypt_api_key(api_key)
     masked_key = mask_api_key(api_key)
@@ -610,6 +615,100 @@ async def add_provider(request: Request):
         })
     
     return {"status": "connected", "provider_id": provider_id}
+
+async def validate_provider_api_key(provider_id: str, api_key: str) -> Optional[str]:
+    """Validate API key by making a minimal test request to the provider.
+    Returns error message if invalid, None if valid."""
+    
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            if provider_id == "anthropic":
+                # Test Anthropic key with a minimal request
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json={
+                        "model": "claude-3-haiku-20240307",
+                        "max_tokens": 1,
+                        "messages": [{"role": "user", "content": "Hi"}]
+                    }
+                )
+                if response.status_code == 401:
+                    return "Invalid Anthropic API key. Please check your key and try again."
+                elif response.status_code == 403:
+                    return "Anthropic API key doesn't have permission. Please check your account."
+                elif response.status_code >= 400 and response.status_code != 429:
+                    error_data = response.json()
+                    return f"Anthropic API error: {error_data.get('error', {}).get('message', 'Unknown error')}"
+                    
+            elif provider_id == "openai":
+                # Test OpenAI key with models endpoint (doesn't cost anything)
+                response = await client.get(
+                    "https://api.openai.com/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
+                if response.status_code == 401:
+                    return "Invalid OpenAI API key. Please check your key and try again."
+                elif response.status_code == 403:
+                    return "OpenAI API key doesn't have permission. Please check your account."
+                elif response.status_code >= 400:
+                    error_data = response.json()
+                    return f"OpenAI API error: {error_data.get('error', {}).get('message', 'Unknown error')}"
+                    
+            elif provider_id == "google":
+                # Test Google AI key with a minimal request
+                response = await client.post(
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={api_key}",
+                    json={
+                        "contents": [{"parts": [{"text": "Hi"}]}],
+                        "generationConfig": {"maxOutputTokens": 1}
+                    }
+                )
+                if response.status_code == 400:
+                    error_data = response.json()
+                    if "API_KEY_INVALID" in str(error_data):
+                        return "Invalid Google AI API key. Please check your key and try again."
+                elif response.status_code == 403:
+                    return "Google AI API key doesn't have permission. Please enable the Generative Language API."
+                elif response.status_code >= 400 and response.status_code != 429:
+                    return f"Google AI API error: {response.status_code}"
+                    
+            elif provider_id == "cohere":
+                # Test Cohere key
+                response = await client.get(
+                    "https://api.cohere.ai/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
+                if response.status_code == 401:
+                    return "Invalid Cohere API key. Please check your key and try again."
+                elif response.status_code >= 400:
+                    return f"Cohere API error: {response.status_code}"
+                    
+            elif provider_id == "mistral":
+                # Test Mistral key
+                response = await client.get(
+                    "https://api.mistral.ai/v1/models",
+                    headers={"Authorization": f"Bearer {api_key}"}
+                )
+                if response.status_code == 401:
+                    return "Invalid Mistral API key. Please check your key and try again."
+                elif response.status_code >= 400:
+                    return f"Mistral API error: {response.status_code}"
+            
+            return None  # Key is valid
+            
+        except httpx.TimeoutException:
+            return "Connection timeout while validating API key. Please try again."
+        except httpx.HTTPError as e:
+            logger.error(f"HTTP error validating {provider_id} key: {e}")
+            return f"Network error while validating API key: {str(e)}"
+        except Exception as e:
+            logger.error(f"Error validating {provider_id} key: {e}")
+            return f"Error validating API key: {str(e)}"
 
 @api_router.delete("/settings/providers/{provider_id}")
 async def remove_provider(request: Request, provider_id: str):
@@ -1053,53 +1152,9 @@ def generate_recent_calls():
     return calls
 
 async def seed_user_data(user_id: str):
-    """Seed mock data for a new user"""
-    import random
+    """Seed default configs for a new user (NO mock data)"""
     
-    # Seed dashboard stats
-    await db.dashboard_stats.insert_one({
-        "user_id": user_id,
-        "total_spend": 284.17,
-        "spend_change": 12,
-        "api_calls": 14382,
-        "calls_change": 8,
-        "avg_cost_per_call": 0.0197,
-        "active_features": 7
-    })
-    
-    # Seed cost by feature
-    features = [
-        {"user_id": user_id, "feature": "chat-assistant", "cost": 98},
-        {"user_id": user_id, "feature": "doc-summarizer", "cost": 74},
-        {"user_id": user_id, "feature": "search-enhance", "cost": 51},
-        {"user_id": user_id, "feature": "email-draft", "cost": 38},
-        {"user_id": user_id, "feature": "code-review", "cost": 23}
-    ]
-    await db.cost_by_feature.insert_many(features)
-    
-    # Seed daily spend
-    daily_data = generate_daily_spend_data()
-    for d in daily_data:
-        d["user_id"] = user_id
-    await db.daily_spend.insert_many(daily_data)
-    
-    # Seed top users
-    top_users = [
-        {"owner_id": user_id, "user_id": "user_7291", "calls": 1847, "total_cost": 41.20, "avg_cost": 0.0223},
-        {"owner_id": user_id, "user_id": "user_3842", "calls": 1623, "total_cost": 38.54, "avg_cost": 0.0237},
-        {"owner_id": user_id, "user_id": "user_9156", "calls": 1402, "total_cost": 31.89, "avg_cost": 0.0227},
-        {"owner_id": user_id, "user_id": "user_4521", "calls": 1256, "total_cost": 28.47, "avg_cost": 0.0227},
-        {"owner_id": user_id, "user_id": "user_6834", "calls": 1089, "total_cost": 24.12, "avg_cost": 0.0222}
-    ]
-    await db.top_users.insert_many(top_users)
-    
-    # Seed recent API calls
-    recent_calls = generate_recent_calls()
-    for call in recent_calls:
-        call["owner_id"] = user_id
-    await db.api_calls.insert_many(recent_calls)
-    
-    # Seed default alert configs
+    # Only seed default alert configs - no fake data
     alerts = [
         {
             "alert_id": f"alert_{uuid.uuid4().hex[:12]}",
@@ -1130,30 +1185,6 @@ async def seed_user_data(user_id: str):
         }
     ]
     await db.alert_configs.insert_many(alerts)
-    
-    # Seed alert history
-    now = datetime.now(timezone.utc)
-    history = [
-        {
-            "history_id": f"hist_{uuid.uuid4().hex[:8]}",
-            "user_id": user_id,
-            "alert_type": "single_feature",
-            "message": "doc-summarizer exceeded $30/day limit",
-            "value": 34.12,
-            "status": "triggered",
-            "triggered_at": (now - timedelta(days=2)).isoformat()
-        },
-        {
-            "history_id": f"hist_{uuid.uuid4().hex[:8]}",
-            "user_id": user_id,
-            "alert_type": "hourly_spike",
-            "message": "Hourly spike: 340% above average",
-            "value": None,
-            "status": "triggered",
-            "triggered_at": (now - timedelta(days=5)).isoformat()
-        }
-    ]
-    await db.alert_history.insert_many(history)
 
 # ==================== Health Check ====================
 
