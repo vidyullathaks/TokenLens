@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Layout } from '../components/Layout';
+import { getAuthHeaders } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { 
@@ -44,14 +45,14 @@ export default function Dashboard() {
   const fetchDashboardData = async () => {
     try {
       // First check connected providers
-      const providersRes = await fetch(`${API}/settings/providers`, { credentials: 'include' });
+      const providersRes = await fetch(`${API}/settings/providers`, { headers: getAuthHeaders() });
       if (providersRes.ok) {
         const providers = await providersRes.json();
         setConnectedProviders(providers);
         
         // If providers connected, only show real data (no fallback to demo)
         if (providers.length > 0) {
-          const realStatsRes = await fetch(`${API}/dashboard/real-stats`, { credentials: 'include' });
+          const realStatsRes = await fetch(`${API}/dashboard/real-stats`, { headers: getAuthHeaders() });
           if (realStatsRes.ok) {
             const realStats = await realStatsRes.json();
             if (realStats.has_data && realStats.api_calls > 0) {
@@ -60,8 +61,8 @@ export default function Dashboard() {
               
               // Fetch real data
               const [featureRes, callsRes] = await Promise.all([
-                fetch(`${API}/dashboard/real-cost-by-feature`, { credentials: 'include' }),
-                fetch(`${API}/dashboard/real-recent-calls`, { credentials: 'include' })
+                fetch(`${API}/dashboard/real-cost-by-feature`, { headers: getAuthHeaders() }),
+                fetch(`${API}/dashboard/real-recent-calls`, { headers: getAuthHeaders() })
               ]);
               
               if (featureRes.ok) setCostByFeature(await featureRes.json());

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout } from '../components/Layout';
+import { getAuthHeaders } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -132,7 +133,7 @@ export default function Settings() {
 
   const fetchConnectedProviders = async () => {
     try {
-      const response = await fetch(`${API}/settings/providers`, { credentials: 'include' });
+      const response = await fetch(`${API}/settings/providers`, { headers: getAuthHeaders() });
       if (response.ok) {
         const data = await response.json();
         setConnectedProviders(data);
@@ -149,7 +150,7 @@ export default function Settings() {
     try {
       const response = await fetch(`${API}/settings/providers/${providerId}/test`, {
         method: 'POST',
-        credentials: 'include'
+        headers: getAuthHeaders()
       });
       
       const data = await response.json();
@@ -183,8 +184,7 @@ export default function Settings() {
     try {
       const response = await fetch(`${API}/settings/providers`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           provider_id: selectedProvider.id,
           api_key: apiKeyInput.trim()
@@ -213,7 +213,7 @@ export default function Settings() {
     try {
       const response = await fetch(`${API}/settings/providers/${providerId}`, {
         method: 'DELETE',
-        credentials: 'include'
+        headers: getAuthHeaders()
       });
 
       if (response.ok) {

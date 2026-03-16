@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout } from '../components/Layout';
+import { getAuthHeaders } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -44,8 +45,8 @@ export default function Alerts() {
   const fetchAlertData = async () => {
     try {
       const [configRes, historyRes] = await Promise.all([
-        fetch(`${API}/alerts/config`, { credentials: 'include' }),
-        fetch(`${API}/alerts/history`, { credentials: 'include' })
+        fetch(`${API}/alerts/config`, { headers: getAuthHeaders() }),
+        fetch(`${API}/alerts/history`, { headers: getAuthHeaders() })
       ]);
 
       if (configRes.ok) {
@@ -77,8 +78,7 @@ export default function Alerts() {
       const config = configs[alertType];
       const response = await fetch(`${API}/alerts/config`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({
           alert_type: alertType,
           threshold: config.threshold,
