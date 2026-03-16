@@ -2,7 +2,7 @@
   "buildCommand": "cd frontend && npm install --legacy-peer-deps && npm install ajv@^8.0.0 --legacy-peer-deps && CI=false npm run build",
   "outputDirectory": "frontend/build",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index.py" },
+    { "source": "/api/(.*)", "destination": "/api/index" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ]
 }
