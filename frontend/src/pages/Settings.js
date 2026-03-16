@@ -24,7 +24,7 @@ import {
 import { Eye, EyeOff, Plus, Trash2, ExternalLink, Check, AlertCircle, Zap, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 const API = `${BACKEND_URL}/api`;
 
 // Provider configurations with instructions
