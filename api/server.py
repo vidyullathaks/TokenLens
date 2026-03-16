@@ -19,10 +19,25 @@ import bcrypt
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MongoDB connection — lazy init so module imports cleanly even during build
+_mongo_client = None
+_db = None
+
+def get_db():
+    global _mongo_client, _db
+    if _db is None:
+        mongo_url = os.environ.get('MONGO_URL', '')
+        db_name = os.environ.get('DB_NAME', 'tokenlens')
+        _mongo_client = AsyncIOMotorClient(mongo_url)
+        _db = _mongo_client[db_name]
+    return _db
+
+# Alias so existing code still works
+class _LazyDB:
+    def __getattr__(self, name):
+        return getattr(get_db(), name)
+
+db = _LazyDB()
 
 # Encryption key for API keys (generate a consistent key from a secret)
 ENCRYPTION_SECRET = os.environ.get('ENCRYPTION_SECRET', 'tokenlens-default-secret-key-change-in-prod')

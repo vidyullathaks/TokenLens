@@ -1,8 +1,7 @@
-from fastapi import FastAPI
-from fastapi.responses import JSONResponse
+import sys
+import os
 
-app = FastAPI()
+# server.py is co-located in this api/ directory
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-@app.get("/api/test")
-async def test():
-    return {"status": "minimal fastapi works"}
+from server import app
