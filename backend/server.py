@@ -791,8 +791,10 @@ async def test_provider_connection(request: Request, provider_id: str):
                     error_msg = error_data.get("error", {}).get("message", "Unknown error")
                     if "credit balance" in error_msg.lower():
                         return {
-                            "success": False,
-                            "error": "Your Anthropic account has insufficient credits. Please add credits at console.anthropic.com"
+                            "success": True,
+                            "message": "API key is valid and connected! Note: your Anthropic API account has no prepaid credits yet — add some at console.anthropic.com/billing to start making calls. (Claude.ai Pro subscriptions don't include API credits.)",
+                            "tokens": 0,
+                            "cost": 0
                         }
                     return {"success": False, "error": error_msg}
                     
