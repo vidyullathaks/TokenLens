@@ -641,6 +641,14 @@ async def validate_provider_api_key(provider_id: str, api_key: str) -> Optional[
                     return "Invalid Anthropic API key. Please check your key and try again."
                 elif response.status_code == 403:
                     return "Anthropic API key doesn't have permission. Please check your account."
+                # 400 with credit balance error means the key IS valid, just no credits
+                elif response.status_code == 400:
+                    error_data = response.json()
+                    error_msg = error_data.get('error', {}).get('message', '')
+                    if 'credit balance' in error_msg.lower():
+                        # Key is valid but low on credits - allow it
+                        return None
+                    return f"Anthropic API error: {error_msg}"
                 elif response.status_code >= 400 and response.status_code != 429:
                     error_data = response.json()
                     return f"Anthropic API error: {error_data.get('error', {}).get('message', 'Unknown error')}"
