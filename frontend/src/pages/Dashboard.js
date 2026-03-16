@@ -23,7 +23,7 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, Zap, Activity, Layers, Settings, AlertCircle } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Zap, Activity, Layers, Settings, AlertCircle, FlaskConical } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 const API = `${BACKEND_URL}/api`;
@@ -37,10 +37,27 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [connectedProviders, setConnectedProviders] = useState([]);
   const [hasRealData, setHasRealData] = useState(false);
+  const [seedingDemo, setSeedingDemo] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
   }, []);
+
+  const loadDemoData = async () => {
+    setSeedingDemo(true);
+    try {
+      const res = await fetch(`${API}/dashboard/seed-demo`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        await fetchDashboardData();
+      }
+    } catch (e) {
+      console.error('Demo seed error:', e);
+    }
+    setSeedingDemo(false);
+  };
 
   const fetchDashboardData = async () => {
     try {
@@ -240,11 +257,24 @@ export default function Dashboard() {
         )}
 
         {/* Page Header */}
-        <div>
-          <h1 className="text-3xl font-bold text-slate-900 font-['Manrope'] tracking-tight" data-testid="dashboard-title">
-            Dashboard
-          </h1>
-          <p className="text-slate-500 mt-1">Your API cost intelligence at a glance</p>
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-slate-900 font-['Manrope'] tracking-tight" data-testid="dashboard-title">
+              Dashboard
+            </h1>
+            <p className="text-slate-500 mt-1">Your API cost intelligence at a glance</p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={loadDemoData}
+            disabled={seedingDemo}
+            className="text-slate-500 border-slate-300 hover:bg-slate-50"
+            title="Populate dashboard with sample data for demo purposes"
+          >
+            <FlaskConical className="w-4 h-4 mr-2" />
+            {seedingDemo ? 'Loading...' : 'Load Demo Data'}
+          </Button>
         </div>
 
         {/* Summary Cards */}

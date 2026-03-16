@@ -20,9 +20,9 @@ ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
-mongo_url = os.environ['MONGO_URL']
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
 client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+db = client[os.environ.get('DB_NAME', 'tokenlens')]
 
 # Encryption key for API keys (generate a consistent key from a secret)
 ENCRYPTION_SECRET = os.environ.get('ENCRYPTION_SECRET', 'tokenlens-default-secret-key-change-in-prod')
@@ -839,8 +839,16 @@ async def test_provider_connection(request: Request, provider_id: str):
                     }
                 else:
                     error_data = response.json()
-                    return {"success": False, "error": error_data.get("error", {}).get("message", "Unknown error")}
-                    
+                    error_msg = error_data.get("error", {}).get("message", "Unknown error")
+                    if "quota" in error_msg.lower() or "exceeded" in error_msg.lower() or "billing" in error_msg.lower():
+                        return {
+                            "success": True,
+                            "message": "API key is valid and connected! Note: your OpenAI API account has no prepaid credits. ChatGPT Plus subscriptions don't include API credits — add credits at platform.openai.com/settings/billing.",
+                            "tokens": 0,
+                            "cost": 0
+                        }
+                    return {"success": False, "error": error_msg}
+
             elif provider_id == "google":
                 response = await client.post(
                     f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
@@ -852,6 +860,7 @@ async def test_provider_connection(request: Request, provider_id: str):
 
                 if response.status_code == 200:
                     data = response.json()
+                    # Google doesn't return token counts in the same way, estimate
                     content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                     estimated_tokens = len(content.split()) * 2
                     cost = calculate_cost("google", "gemini-1.5-flash", 10, estimated_tokens)
@@ -866,7 +875,7 @@ async def test_provider_connection(request: Request, provider_id: str):
                         output_tokens=estimated_tokens,
                         cost=cost
                     )
-
+                    
                     return {
                         "success": True,
                         "message": content,
@@ -1351,6 +1360,63 @@ async def seed_user_data(user_id: str):
     ]
     await db.alert_configs.insert_many(alerts)
 
+# ==================== Demo Data ====================
+
+@api_router.post("/dashboard/seed-demo")
+async def seed_demo_data(request: Request):
+    """Populate dashboard with realistic demo data for portfolio/testing"""
+    user = await get_current_user(request)
+
+    import random
+
+    providers = ["anthropic", "openai", "google"]
+    models = {
+        "anthropic": ["claude-3-haiku-20240307", "claude-3-sonnet-20240229", "claude-3-opus-20240229"],
+        "openai": ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo"],
+        "google": ["gemini-1.5-flash", "gemini-1.5-pro"],
+    }
+    features = ["chat-assistant", "code-review", "summarization", "data-extraction", "content-generation"]
+    end_users = ["user_001", "user_002", "user_003", "user_004", "user_005"]
+
+    now = datetime.now(timezone.utc)
+    calls = []
+    for i in range(120):
+        provider = random.choice(providers)
+        model = random.choice(models[provider])
+        input_tokens = random.randint(100, 2000)
+        output_tokens = random.randint(50, 800)
+        cost = calculate_cost(provider, model, input_tokens, output_tokens)
+        days_ago = random.randint(0, 29)
+        hours_ago = random.randint(0, 23)
+        ts = now - timedelta(days=days_ago, hours=hours_ago, minutes=random.randint(0, 59))
+        calls.append({
+            "call_id": f"call_{uuid.uuid4().hex[:16]}",
+            "user_id": user.user_id,
+            "provider_id": provider,
+            "model": model,
+            "feature": random.choice(features),
+            "end_user": random.choice(end_users),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "total_tokens": input_tokens + output_tokens,
+            "cost": cost,
+            "timestamp": ts.isoformat(),
+            "status": "success",
+        })
+
+    await db.api_calls.insert_many(calls)
+
+    # Update user stats
+    total_cost = sum(c["cost"] for c in calls)
+    total_tokens = sum(c["total_tokens"] for c in calls)
+    await db.user_stats.update_one(
+        {"user_id": user.user_id},
+        {"$inc": {"total_cost": total_cost, "total_calls": len(calls), "total_tokens": total_tokens}},
+        upsert=True
+    )
+
+    return {"success": True, "calls_added": len(calls), "total_cost": round(total_cost, 4)}
+
 # ==================== Health Check ====================
 
 @api_router.get("/")
@@ -1360,6 +1426,16 @@ async def root():
 @api_router.get("/health")
 async def health():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
+
+@api_router.get("/debug-db")
+async def debug_db():
+    """Temporary debug endpoint to test MongoDB connectivity"""
+    import traceback
+    try:
+        result = await db.users.find_one({}, {"_id": 0, "email": 1})
+        return {"status": "db_ok", "sample": str(result)[:100] if result else None}
+    except Exception as e:
+        return {"status": "db_error", "error": str(e), "type": type(e).__name__, "tb": traceback.format_exc()[-500:]}
 
 # Include router
 app.include_router(api_router)
