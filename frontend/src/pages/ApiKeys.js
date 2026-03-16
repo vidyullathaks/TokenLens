@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout } from '../components/Layout';
+import { getAuthHeaders } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../components/ui/tabs';
@@ -22,7 +23,7 @@ export default function ApiKeys() {
 
   const fetchApiKey = async () => {
     try {
-      const response = await fetch(`${API}/api-keys`, { credentials: 'include' });
+      const response = await fetch(`${API}/api-keys`, { headers: getAuthHeaders() });
       if (response.ok) {
         const data = await response.json();
         setApiKey(data.api_key);
@@ -40,7 +41,7 @@ export default function ApiKeys() {
     try {
       const response = await fetch(`${API}/api-keys/regenerate`, {
         method: 'POST',
-        credentials: 'include'
+        headers: getAuthHeaders()
       });
       if (response.ok) {
         const data = await response.json();

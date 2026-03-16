@@ -14,6 +14,7 @@ import httpx
 import base64
 from cryptography.fernet import Fernet
 import hashlib
+import bcrypt
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -103,7 +104,17 @@ class User(BaseModel):
     name: str
     picture: Optional[str] = None
     api_key: Optional[str] = None
+    password_hash: Optional[str] = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class UserRegister(BaseModel):
+    email: str
+    password: str
+    name: str
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
 
 class UserSession(BaseModel):
     model_config = ConfigDict(extra="ignore")
@@ -183,102 +194,85 @@ async def get_current_user(request: Request) -> User:
 
 # ==================== Auth Endpoints ====================
 
-@api_router.post("/auth/session")
-async def exchange_session(request: Request, response: Response):
-    """Exchange Emergent session_id for our session"""
-    body = await request.json()
-    session_id = body.get("session_id")
-    
-    if not session_id:
-        raise HTTPException(status_code=400, detail="session_id required")
-    
-    # Exchange with Emergent Auth
-    async with httpx.AsyncClient() as client:
-        emergent_response = await client.get(
-            "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data",
-            headers={"X-Session-ID": session_id}
-        )
-    
-    if emergent_response.status_code != 200:
-        raise HTTPException(status_code=401, detail="Invalid session_id")
-    
-    auth_data = emergent_response.json()
-    email = auth_data.get("email")
-    name = auth_data.get("name")
-    picture = auth_data.get("picture")
-    # Check if user exists
-    existing_user = await db.users.find_one({"email": email}, {"_id": 0})
-    
-    if existing_user:
-        user_id = existing_user["user_id"]
-        # Update user info if needed
-        await db.users.update_one(
-            {"user_id": user_id},
-            {"$set": {"name": name, "picture": picture}}
-        )
-    else:
-        # Create new user with API key
-        user_id = f"user_{uuid.uuid4().hex[:12]}"
-        api_key = f"tl_live_{uuid.uuid4().hex[:24]}"
-        new_user = {
-            "user_id": user_id,
-            "email": email,
-            "name": name,
-            "picture": picture,
-            "api_key": api_key,
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        await db.users.insert_one(new_user)
-        
-        # Seed mock data for new user
-        await seed_user_data(user_id)
-    
-    # Create session
+@api_router.post("/auth/register")
+async def register(body: UserRegister):
+    """Register a new user with email and password"""
+    email = body.email.lower().strip()
+
+    existing = await db.users.find_one({"email": email}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+
+    password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
+    user_id = f"user_{uuid.uuid4().hex[:12]}"
+    api_key = f"tl_live_{uuid.uuid4().hex[:24]}"
+
+    new_user = {
+        "user_id": user_id,
+        "email": email,
+        "name": body.name,
+        "picture": None,
+        "api_key": api_key,
+        "password_hash": password_hash,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.users.insert_one(new_user)
+    await seed_user_data(user_id)
+
     session_token = f"sess_{uuid.uuid4().hex}"
     expires_at = datetime.now(timezone.utc) + timedelta(days=7)
-    
     await db.user_sessions.insert_one({
         "user_id": user_id,
         "session_token": session_token,
         "expires_at": expires_at.isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat()
     })
-    
-    # Set cookie
-    response.set_cookie(
-        key="session_token",
-        value=session_token,
-        httponly=True,
-        secure=True,
-        samesite="none",
-        path="/",
-        max_age=7 * 24 * 60 * 60
-    )
-    
-    # Get full user data
-    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0})
-    
+
+    user_doc = await db.users.find_one({"user_id": user_id}, {"_id": 0, "password_hash": 0})
     return {"user": user_doc, "session_token": session_token}
+
+@api_router.post("/auth/login")
+async def login(body: UserLogin):
+    """Login with email and password"""
+    email = body.email.lower().strip()
+
+    user_doc = await db.users.find_one({"email": email}, {"_id": 0})
+    if not user_doc or not user_doc.get("password_hash"):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    if not bcrypt.checkpw(body.password.encode(), user_doc["password_hash"].encode()):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+
+    session_token = f"sess_{uuid.uuid4().hex}"
+    expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    await db.user_sessions.insert_one({
+        "user_id": user_doc["user_id"],
+        "session_token": session_token,
+        "expires_at": expires_at.isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat()
+    })
+
+    safe_user = {k: v for k, v in user_doc.items() if k != "password_hash"}
+    return {"user": safe_user, "session_token": session_token}
 
 @api_router.get("/auth/me")
 async def get_me(request: Request):
     """Get current authenticated user"""
     user = await get_current_user(request)
-    return user.model_dump()
+    data = user.model_dump()
+    data.pop("password_hash", None)
+    return data
 
 @api_router.post("/auth/logout")
-async def logout(request: Request, response: Response):
-    """Logout and clear session"""
+async def logout(request: Request):
+    """Logout and invalidate session"""
     session_token = request.cookies.get("session_token")
+    if not session_token:
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            session_token = auth_header.split(" ")[1]
     if session_token:
         await db.user_sessions.delete_one({"session_token": session_token})
-    
-    response.delete_cookie(
-        key="session_token",
-        path="/",
-        secure=True,
-        samesite="none"
-    )
     return {"message": "Logged out"}
 
 # ==================== Dashboard Endpoints ====================
