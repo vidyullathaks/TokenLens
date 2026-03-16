@@ -23,7 +23,7 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, Zap, Activity, Layers, Settings, AlertCircle, FlaskConical } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Zap, Activity, Layers, Settings, AlertCircle, Beaker } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 const API = `${BACKEND_URL}/api`;
@@ -272,7 +272,7 @@ export default function Dashboard() {
             className="text-slate-500 border-slate-300 hover:bg-slate-50"
             title="Populate dashboard with sample data for demo purposes"
           >
-            <FlaskConical className="w-4 h-4 mr-2" />
+            <Beaker className="w-4 h-4 mr-2" />
             {seedingDemo ? 'Loading...' : 'Load Demo Data'}
           </Button>
         </div>
