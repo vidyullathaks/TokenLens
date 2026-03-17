@@ -3,7 +3,7 @@
 > **Know exactly which feature and which user is driving your OpenAI and Anthropic costs.**
 > One line of code. Full attribution. No surprise bills.
 
-🔗 **Live Demo**: [tokenlens-three.vercel.app](https://tokenlens-three.vercel.app)
+🔗 **Live Demo**: [tokenlens-three.vercel.app](https://tokenlens-three.vercel.app) | **GitHub**: [github.com/vidyullathaks/TokenLens](https://github.com/vidyullathaks/TokenLens)
 
 ---
 
