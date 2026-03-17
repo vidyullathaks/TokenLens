@@ -1364,6 +1364,7 @@ async def seed_demo_data(request: Request):
             "cost": cost,
             "timestamp": ts.isoformat(),
             "status": "success",
+            "is_demo": True,
         })
 
     await db.api_calls.insert_many(calls)
@@ -1420,6 +1421,26 @@ async def seed_demo_data(request: Request):
     )
 
     return {"success": True, "calls_added": len(calls), "total_cost": round(total_cost, 4)}
+
+@api_router.post("/dashboard/clear-demo")
+async def clear_demo_data(request: Request):
+    """Remove all demo data for the current user"""
+    user = await get_current_user(request)
+
+    result = await db.api_calls.delete_many({"owner_id": user.user_id, "is_demo": True})
+    await db.alert_history.delete_many({"user_id": user.user_id})
+
+    # Recalculate user stats from remaining real calls
+    real_calls = await db.api_calls.find({"owner_id": user.user_id}, {"cost": 1, "total_tokens": 1}).to_list(None)
+    total_cost = sum(c.get("cost", 0) for c in real_calls)
+    total_tokens = sum(c.get("total_tokens", 0) for c in real_calls)
+    await db.user_stats.update_one(
+        {"user_id": user.user_id},
+        {"$set": {"total_cost": total_cost, "total_calls": len(real_calls), "total_tokens": total_tokens}},
+        upsert=True
+    )
+
+    return {"success": True, "calls_removed": result.deleted_count}
 
 # ==================== Health Check ====================
 
