@@ -19,6 +19,80 @@ TokenLens is the missing attribution layer between your code and your AI provide
 
 ---
 
+## Quick Start — 60 seconds to your first tracked call
+
+**1. Create an account and get your API key**
+
+Sign up at [tokenlens-three.vercel.app](https://tokenlens-three.vercel.app). Your `tl_live_` key is auto-generated on the API Keys page. Copy it.
+
+**2. Connect your AI provider**
+
+Go to **Settings → Providers**, paste your OpenAI or Anthropic key, and click Connect.
+
+**3. Change one line in your code**
+
+**Python (OpenAI)**
+```python
+import openai
+
+client = openai.OpenAI(
+    base_url="https://tokenlens-three.vercel.app/api/proxy/openai",
+    default_headers={
+        "X-TL-Key": "tl_live_your_key_here",   # from Step 1
+        "X-TL-Feature": "chat",                  # name this feature anything
+        "X-TL-User": "user_123",                 # your end-user's ID
+    }
+)
+
+# Everything else stays the same
+response = client.chat.completions.create(
+    model="gpt-4o",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+**Node.js (OpenAI)**
+```javascript
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "https://tokenlens-three.vercel.app/api/proxy/openai",
+  defaultHeaders: {
+    "X-TL-Key": "tl_live_your_key_here",
+    "X-TL-Feature": "chat",
+    "X-TL-User": "user_123",
+  },
+});
+
+// Everything else stays the same
+const response = await client.chat.completions.create({
+  model: "gpt-4o",
+  messages: [{ role: "user", content: "Hello!" }],
+});
+```
+
+**Python (Anthropic)**
+```python
+import anthropic
+
+client = anthropic.Anthropic(
+    base_url="https://tokenlens-three.vercel.app/api/proxy/anthropic",
+    default_headers={
+        "X-TL-Key": "tl_live_your_key_here",
+        "X-TL-Feature": "summarize",
+        "X-TL-User": "user_123",
+    }
+)
+```
+
+**4. Open the dashboard**
+
+Refresh the TokenLens dashboard. Your call appears in the **Recent API Calls** feed within seconds, with cost, model, and feature tag. Done.
+
+> **Tip**: Use `X-TL-Feature` to tag different features (`"chat"`, `"summarize"`, `"code-review"`) and `X-TL-User` to pass your end-user's ID. These two headers are what power the cost-by-feature and top-users breakdowns on the dashboard.
+
+---
+
 ## How It Works
 
 TokenLens acts as a transparent proxy between your app and your AI provider. You change one line of code:
