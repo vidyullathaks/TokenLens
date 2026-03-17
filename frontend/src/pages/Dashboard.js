@@ -81,59 +81,48 @@ export default function Dashboard() {
 
   const fetchDashboardData = async () => {
     try {
-      // First check connected providers
-      const providersRes = await fetch(`${API}/settings/providers`, { headers: getAuthHeaders() });
-      if (providersRes.ok) {
-        const providers = await providersRes.json();
-        setConnectedProviders(providers);
-        
-        // If providers connected, only show real data (no fallback to demo)
-        if (providers.length > 0) {
-          const realStatsRes = await fetch(`${API}/dashboard/real-stats`, { headers: getAuthHeaders() });
-          if (realStatsRes.ok) {
-            const realStats = await realStatsRes.json();
-            if (realStats.has_data && realStats.api_calls > 0) {
-              setHasRealData(true);
-              setStats(realStats);
-              setHasDemoData(realStats.has_demo_data || false);
+      // Fetch providers and stats in parallel — stats no longer gated on providers
+      const [providersRes, realStatsRes] = await Promise.all([
+        fetch(`${API}/settings/providers`, { headers: getAuthHeaders() }),
+        fetch(`${API}/dashboard/real-stats`, { headers: getAuthHeaders() }),
+      ]);
 
-              // Fetch real data
-              const [featureRes, callsRes, dailyRes, topUsersRes] = await Promise.all([
-                fetch(`${API}/dashboard/real-cost-by-feature`, { headers: getAuthHeaders() }),
-                fetch(`${API}/dashboard/real-recent-calls`, { headers: getAuthHeaders() }),
-                fetch(`${API}/dashboard/real-daily-spend`, { headers: getAuthHeaders() }),
-                fetch(`${API}/dashboard/real-top-users`, { headers: getAuthHeaders() }),
-              ]);
+      if (providersRes.ok) setConnectedProviders(await providersRes.json());
 
-              if (featureRes.ok) setCostByFeature(await featureRes.json());
-              if (callsRes.ok) setRecentCalls(await callsRes.json());
-              if (dailyRes.ok) setDailySpend(await dailyRes.json());
-              else setDailySpend(generateEmptyDailyData());
-              if (topUsersRes.ok) setTopUsers(await topUsersRes.json());
-              else setTopUsers([]);
-            } else {
-              // Providers connected but no calls yet - show zeros
-              setHasRealData(false);
-              setStats({
-                total_spend: 0,
-                spend_change: 0,
-                api_calls: 0,
-                calls_change: 0,
-                avg_cost_per_call: 0,
-                active_features: 0
-              });
-              setCostByFeature([]);
-              setDailySpend(generateEmptyDailyData());
-              setTopUsers([]);
-              setRecentCalls([]);
-            }
-          }
-          setLoading(false);
-          return;
+      if (realStatsRes.ok) {
+        const realStats = await realStatsRes.json();
+        const hasData = realStats.has_data && (realStats.api_calls > 0 || realStats.has_demo_data);
+
+        if (hasData) {
+          setHasRealData(true);
+          setStats(realStats);
+          setHasDemoData(realStats.has_demo_data || false);
+
+          const [featureRes, callsRes, dailyRes, topUsersRes] = await Promise.all([
+            fetch(`${API}/dashboard/real-cost-by-feature`, { headers: getAuthHeaders() }),
+            fetch(`${API}/dashboard/real-recent-calls`, { headers: getAuthHeaders() }),
+            fetch(`${API}/dashboard/real-daily-spend`, { headers: getAuthHeaders() }),
+            fetch(`${API}/dashboard/real-top-users`, { headers: getAuthHeaders() }),
+          ]);
+
+          if (featureRes.ok) setCostByFeature(await featureRes.json());
+          if (callsRes.ok) setRecentCalls(await callsRes.json());
+          if (dailyRes.ok) setDailySpend(await dailyRes.json());
+          else setDailySpend(generateEmptyDailyData());
+          if (topUsersRes.ok) setTopUsers(await topUsersRes.json());
+          else setTopUsers([]);
+        } else {
+          // No data at all — reset everything, setup screen will show
+          setHasRealData(false);
+          setHasDemoData(false);
+          setStats({ total_spend: 0, spend_change: 0, api_calls: 0, calls_change: 0, avg_cost_per_call: 0, active_features: 0 });
+          setCostByFeature([]);
+          setDailySpend(generateEmptyDailyData());
+          setTopUsers([]);
+          setRecentCalls([]);
         }
       }
-      
-      // No providers connected - don't load any data, the empty state will show
+
       setLoading(false);
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -197,8 +186,8 @@ export default function Dashboard() {
     );
   }
 
-  // Show only setup prompt when no providers connected
-  if (connectedProviders.length === 0) {
+  // Show setup prompt only when no providers connected AND no data (demo or real)
+  if (connectedProviders.length === 0 && !hasRealData && !hasDemoData) {
     return (
       <Layout>
         <div className="space-y-8" data-testid="dashboard-page">
@@ -271,8 +260,8 @@ export default function Dashboard() {
   return (
     <Layout>
       <div className="space-y-8" data-testid="dashboard-page">
-        {/* Data Mode Badge - Show when providers connected but no calls yet */}
-        {connectedProviders.length > 0 && !hasRealData && (
+        {/* Data Mode Badge - Show when providers connected but no real calls yet */}
+        {connectedProviders.length > 0 && !hasRealData && !hasDemoData && (
           <div className="flex items-center gap-2 text-sm text-amber-700 bg-amber-50 px-4 py-2 rounded-lg border border-amber-200">
             <AlertCircle className="w-4 h-4" />
             <span>Providers connected but no API calls tracked yet. Use the proxy endpoints to start tracking.</span>

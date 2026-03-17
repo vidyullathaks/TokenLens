@@ -540,6 +540,17 @@ async def get_alert_history(request: Request):
 
 # ==================== Settings/Provider Endpoints ====================
 
+@api_router.get("/settings/profile")
+async def get_user_profile(request: Request):
+    """Get current user's profile"""
+    user = await get_current_user(request)
+    return {
+        "user_id": user.user_id,
+        "email": user.email,
+        "name": getattr(user, "name", None),
+        "created_at": getattr(user, "created_at", None),
+    }
+
 @api_router.get("/settings/providers")
 async def get_connected_providers(request: Request):
     """Get user's connected AI providers"""
@@ -1138,21 +1149,18 @@ async def proxy_openai(request: Request):
 async def get_real_dashboard_stats(request: Request):
     """Get real dashboard statistics from tracked API calls"""
     user = await get_current_user(request)
-    
-    # Check if user has any connected providers
+
+    # Get connected providers (informational only — does not gate data)
     providers = await db.user_providers.find(
         {"user_id": user.user_id},
         {"_id": 0, "provider_id": 1}
     ).to_list(100)
-    
-    if not providers:
-        return {"has_data": False, "message": "No providers connected"}
-    
+
     # Get this month's stats
     now = datetime.now(timezone.utc)
     start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
-    # Aggregate stats from api_calls
+
+    # Aggregate stats from api_calls (works with demo data too, no provider gate)
     pipeline = [
         {
             "$match": {
@@ -1169,37 +1177,42 @@ async def get_real_dashboard_stats(request: Request):
             }
         }
     ]
-    
+
     result = await db.api_calls.aggregate(pipeline).to_list(1)
-    
+
+    # Check demo data regardless of month filter (covers all-time demo calls)
+    demo_count = await db.api_calls.count_documents(demo_call_filter(user.user_id))
+
     if not result:
         return {
-            "has_data": True,
+            "has_data": demo_count > 0,
             "total_spend": 0,
             "spend_change": 0,
             "api_calls": 0,
             "calls_change": 0,
             "avg_cost_per_call": 0,
             "active_features": 0,
-            "connected_providers": [p["provider_id"] for p in providers]
+            "connected_providers": [p["provider_id"] for p in providers],
+            "has_demo_data": demo_count > 0,
         }
-    
+
     stats = result[0]
     total_spend = stats.get("total_spend", 0)
     api_calls = stats.get("api_calls", 0)
-    
+
     # Get unique features count
     features = await db.api_calls.distinct("feature", {"owner_id": user.user_id})
-    
+
     return {
         "has_data": True,
         "total_spend": round(total_spend, 2),
-        "spend_change": 0,  # Would need last month data to calculate
+        "spend_change": 0,
         "api_calls": api_calls,
         "calls_change": 0,
         "avg_cost_per_call": round(total_spend / api_calls, 4) if api_calls > 0 else 0,
         "active_features": len(features),
-        "connected_providers": [p["provider_id"] for p in providers]
+        "connected_providers": [p["provider_id"] for p in providers],
+        "has_demo_data": demo_count > 0,
     }
 
 @api_router.get("/dashboard/real-cost-by-feature")
@@ -1249,13 +1262,98 @@ async def get_real_cost_by_provider(request: Request):
 async def get_real_recent_calls(request: Request):
     """Get real recent API calls"""
     user = await get_current_user(request)
-    
+
     calls = await db.api_calls.find(
         {"owner_id": user.user_id},
         {"_id": 0}
     ).sort("timestamp", -1).to_list(20)
-    
+
     return calls
+
+@api_router.get("/dashboard/real-daily-spend")
+async def get_real_daily_spend(request: Request):
+    """Get daily spend for last 30 days aggregated from api_calls"""
+    user = await get_current_user(request)
+
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=30)
+
+    pipeline = [
+        {"$match": {"owner_id": user.user_id, "timestamp": {"$gte": since.isoformat()}}},
+        {"$addFields": {"date_str": {"$substr": ["$timestamp", 0, 10]}}},
+        {"$group": {"_id": "$date_str", "spend": {"$sum": "$cost"}}},
+        {"$sort": {"_id": 1}},
+    ]
+    results = await db.api_calls.aggregate(pipeline).to_list(None)
+    spend_by_date = {r["_id"]: r["spend"] for r in results}
+
+    data = []
+    for i in range(30):
+        day = now - timedelta(days=29 - i)
+        date_key = day.strftime("%Y-%m-%d")
+        data.append({
+            "day": i + 1,
+            "date": day.strftime("%b %d"),
+            "spend": round(spend_by_date.get(date_key, 0), 4),
+        })
+    return data
+
+@api_router.get("/dashboard/real-top-users")
+async def get_real_top_users(request: Request):
+    """Get top end-users by cost aggregated from api_calls"""
+    user = await get_current_user(request)
+
+    pipeline = [
+        {"$match": {"owner_id": user.user_id, "end_user": {"$exists": True, "$ne": None}}},
+        {
+            "$group": {
+                "_id": "$end_user",
+                "calls": {"$sum": 1},
+                "total_cost": {"$sum": "$cost"},
+            }
+        },
+        {"$sort": {"total_cost": -1}},
+        {"$limit": 5},
+    ]
+    results = await db.api_calls.aggregate(pipeline).to_list(None)
+    return [
+        {
+            "user_id": r["_id"],
+            "calls": r["calls"],
+            "total_cost": round(r["total_cost"], 4),
+            "avg_cost": round(r["total_cost"] / r["calls"], 4) if r["calls"] > 0 else 0,
+        }
+        for r in results
+    ]
+
+DEMO_END_USERS = ["user_001", "user_002", "user_003", "user_004", "user_005"]
+
+def demo_call_filter(owner_id: str) -> dict:
+    """Match both newly-tagged and legacy untagged demo calls"""
+    return {
+        "owner_id": owner_id,
+        "$or": [{"is_demo": True}, {"end_user": {"$in": DEMO_END_USERS}}],
+    }
+
+@api_router.post("/dashboard/clear-demo")
+async def clear_demo_data(request: Request):
+    """Remove all demo data for the current user"""
+    user = await get_current_user(request)
+
+    result = await db.api_calls.delete_many(demo_call_filter(user.user_id))
+    await db.alert_history.delete_many({"user_id": user.user_id})
+
+    # Recalculate user stats from remaining real calls
+    real_calls = await db.api_calls.find({"owner_id": user.user_id}, {"cost": 1, "total_tokens": 1}).to_list(None)
+    total_cost = sum(c.get("cost", 0) for c in real_calls)
+    total_tokens = sum(c.get("total_tokens", 0) for c in real_calls)
+    await db.user_stats.update_one(
+        {"user_id": user.user_id},
+        {"$set": {"total_cost": total_cost, "total_calls": len(real_calls), "total_tokens": total_tokens}},
+        upsert=True
+    )
+
+    return {"success": True, "calls_removed": result.deleted_count}
 
 # ==================== Helper Functions ====================
 
@@ -1402,6 +1500,7 @@ async def seed_demo_data(request: Request):
             "cost": cost,
             "timestamp": ts.isoformat(),
             "status": "success",
+            "is_demo": True,
         })
 
     await db.api_calls.insert_many(calls)
