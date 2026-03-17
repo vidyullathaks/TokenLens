@@ -159,8 +159,8 @@ export default function Settings() {
         toast.success(
           <div>
             <p className="font-medium">Connection successful!</p>
-            <p className="text-sm text-slate-600">Response: "{data.message}"</p>
-            <p className="text-sm text-slate-600">Tokens: {data.tokens} | Cost: ${data.cost.toFixed(6)}</p>
+            <p className="text-sm opacity-90">{data.message}</p>
+            <p className="text-sm opacity-75">Tokens: {data.tokens} | Cost: ${data.cost.toFixed(6)}</p>
           </div>
         );
       } else {
