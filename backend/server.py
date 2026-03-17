@@ -499,8 +499,57 @@ async def get_alert_history(request: Request):
         {"user_id": user.user_id},
         {"_id": 0}
     ).sort("triggered_at", -1).to_list(10)
-    
+
+    if not history:
+        # Return mock history
+        now = datetime.now(timezone.utc)
+        history = [
+            {
+                "history_id": "hist_001",
+                "alert_type": "single_feature",
+                "message": "doc-summarizer exceeded $30/day limit",
+                "value": 34.12,
+                "status": "triggered",
+                "triggered_at": (now - timedelta(days=2)).isoformat()
+            },
+            {
+                "history_id": "hist_002",
+                "alert_type": "hourly_spike",
+                "message": "Hourly spike: 340% above average",
+                "value": None,
+                "status": "triggered",
+                "triggered_at": (now - timedelta(days=5)).isoformat()
+            },
+            {
+                "history_id": "hist_003",
+                "alert_type": "daily_spend",
+                "message": "Daily spend exceeded $50 threshold",
+                "value": 52.34,
+                "status": "triggered",
+                "triggered_at": (now - timedelta(days=8)).isoformat()
+            },
+            {
+                "history_id": "hist_004",
+                "alert_type": "single_feature",
+                "message": "chat-assistant exceeded $30/day limit",
+                "value": 31.50,
+                "status": "triggered",
+                "triggered_at": (now - timedelta(days=12)).isoformat()
+            }
+        ]
+
     return history
+
+@api_router.get("/settings/profile")
+async def get_user_profile(request: Request):
+    """Get current user's profile"""
+    user = await get_current_user(request)
+    return {
+        "user_id": user.user_id,
+        "email": user.email,
+        "name": getattr(user, "name", None),
+        "created_at": getattr(user, "created_at", None),
+    }
 
 # ==================== Settings/Provider Endpoints ====================
 
@@ -1103,20 +1152,17 @@ async def get_real_dashboard_stats(request: Request):
     """Get real dashboard statistics from tracked API calls"""
     user = await get_current_user(request)
     
-    # Check if user has any connected providers
+    # Get connected providers (informational only — does not gate data)
     providers = await db.user_providers.find(
         {"user_id": user.user_id},
         {"_id": 0, "provider_id": 1}
     ).to_list(100)
-    
-    if not providers:
-        return {"has_data": False, "message": "No providers connected"}
-    
+
     # Get this month's stats
     now = datetime.now(timezone.utc)
     start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
-    # Aggregate stats from api_calls
+
+    # Aggregate stats from api_calls (works with demo data too, no provider gate)
     pipeline = [
         {
             "$match": {
@@ -1136,27 +1182,28 @@ async def get_real_dashboard_stats(request: Request):
     
     result = await db.api_calls.aggregate(pipeline).to_list(1)
     
+    # Check demo data regardless of month filter (covers all-time demo calls)
+    demo_count = await db.api_calls.count_documents(demo_call_filter(user.user_id))
+
     if not result:
         return {
-            "has_data": True,
+            "has_data": demo_count > 0,
             "total_spend": 0,
             "spend_change": 0,
             "api_calls": 0,
             "calls_change": 0,
             "avg_cost_per_call": 0,
             "active_features": 0,
-            "connected_providers": [p["provider_id"] for p in providers]
+            "connected_providers": [p["provider_id"] for p in providers],
+            "has_demo_data": demo_count > 0,
         }
-    
+
     stats = result[0]
     total_spend = stats.get("total_spend", 0)
     api_calls = stats.get("api_calls", 0)
-    
+
     # Get unique features count
     features = await db.api_calls.distinct("feature", {"owner_id": user.user_id})
-
-    # Check if any demo data exists
-    demo_count = await db.api_calls.count_documents({"owner_id": user.user_id, "is_demo": True})
 
     return {
         "has_data": True,
@@ -1484,12 +1531,21 @@ async def seed_demo_data(request: Request):
 
     return {"success": True, "calls_added": len(calls), "total_cost": round(total_cost, 4)}
 
+DEMO_END_USERS = ["user_001", "user_002", "user_003", "user_004", "user_005"]
+
+def demo_call_filter(owner_id: str) -> dict:
+    """Match both newly-tagged and legacy untagged demo calls"""
+    return {
+        "owner_id": owner_id,
+        "$or": [{"is_demo": True}, {"end_user": {"$in": DEMO_END_USERS}}],
+    }
+
 @api_router.post("/dashboard/clear-demo")
 async def clear_demo_data(request: Request):
     """Remove all demo data for the current user"""
     user = await get_current_user(request)
 
-    result = await db.api_calls.delete_many({"owner_id": user.user_id, "is_demo": True})
+    result = await db.api_calls.delete_many(demo_call_filter(user.user_id))
     await db.alert_history.delete_many({"user_id": user.user_id})
 
     # Recalculate user stats from remaining real calls
