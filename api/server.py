@@ -25,7 +25,9 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get('DB_NAME', 'tokenlens')]
 
 # Encryption key for API keys (generate a consistent key from a secret)
-ENCRYPTION_SECRET = os.environ.get('ENCRYPTION_SECRET', 'tokenlens-default-secret-key-change-in-prod')
+ENCRYPTION_SECRET = os.environ.get('ENCRYPTION_SECRET')
+if not ENCRYPTION_SECRET:
+    raise RuntimeError("ENCRYPTION_SECRET environment variable is required but not set.")
 # Create a 32-byte key from the secret
 key_bytes = hashlib.sha256(ENCRYPTION_SECRET.encode()).digest()
 FERNET_KEY = base64.urlsafe_b64encode(key_bytes)
@@ -1575,15 +1577,6 @@ async def root():
 async def health():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
-@api_router.get("/debug-db")
-async def debug_db():
-    """Temporary debug endpoint to test MongoDB connectivity"""
-    import traceback
-    try:
-        result = await db.users.find_one({}, {"_id": 0, "email": 1})
-        return {"status": "db_ok", "sample": str(result)[:100] if result else None}
-    except Exception as e:
-        return {"status": "db_error", "error": str(e), "type": type(e).__name__, "tb": traceback.format_exc()[-500:]}
 
 # Include router
 app.include_router(api_router)
@@ -1592,7 +1585,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get('CORS_ORIGINS', 'https://tokenlens-three.vercel.app').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
