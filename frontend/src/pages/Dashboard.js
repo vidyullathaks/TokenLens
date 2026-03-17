@@ -23,7 +23,7 @@ import {
   Tooltip, 
   ResponsiveContainer 
 } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, Zap, Activity, Layers, Settings, AlertCircle, Beaker } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Zap, Activity, Layers, Settings, AlertCircle, Beaker, X } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 const API = `${BACKEND_URL}/api`;
@@ -37,7 +37,9 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [connectedProviders, setConnectedProviders] = useState([]);
   const [hasRealData, setHasRealData] = useState(false);
+  const [hasDemoData, setHasDemoData] = useState(false);
   const [seedingDemo, setSeedingDemo] = useState(false);
+  const [clearingDemo, setClearingDemo] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -57,6 +59,23 @@ export default function Dashboard() {
       console.error('Demo seed error:', e);
     }
     setSeedingDemo(false);
+  };
+
+  const clearDemoData = async () => {
+    setClearingDemo(true);
+    try {
+      const res = await fetch(`${API}/dashboard/clear-demo`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      if (res.ok) {
+        setHasDemoData(false);
+        await fetchDashboardData();
+      }
+    } catch (e) {
+      console.error('Demo clear error:', e);
+    }
+    setClearingDemo(false);
   };
 
   const fetchDashboardData = async () => {
@@ -83,7 +102,11 @@ export default function Dashboard() {
               ]);
               
               if (featureRes.ok) setCostByFeature(await featureRes.json());
-              if (callsRes.ok) setRecentCalls(await callsRes.json());
+              if (callsRes.ok) {
+                const calls = await callsRes.json();
+                setRecentCalls(calls);
+                setHasDemoData(calls.some(c => c.is_demo));
+              }
               
               // Generate daily data placeholder
               setDailySpend(generateEmptyDailyData());
@@ -264,17 +287,32 @@ export default function Dashboard() {
             </h1>
             <p className="text-slate-500 mt-1">Your API cost intelligence at a glance</p>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={loadDemoData}
-            disabled={seedingDemo}
-            className="text-slate-500 border-slate-300 hover:bg-slate-50"
-            title="Populate dashboard with sample data for demo purposes"
-          >
-            <Beaker className="w-4 h-4 mr-2" />
-            {seedingDemo ? 'Loading...' : 'Load Demo Data'}
-          </Button>
+          <div className="flex items-center gap-2">
+            {hasDemoData && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={clearDemoData}
+                disabled={clearingDemo}
+                className="text-red-500 border-red-200 hover:bg-red-50"
+                title="Remove all demo data"
+              >
+                <X className="w-4 h-4 mr-2" />
+                {clearingDemo ? 'Clearing...' : 'Clear Demo Data'}
+              </Button>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadDemoData}
+              disabled={seedingDemo}
+              className="text-slate-500 border-slate-300 hover:bg-slate-50"
+              title="Populate dashboard with sample data for demo purposes"
+            >
+              <Beaker className="w-4 h-4 mr-2" />
+              {seedingDemo ? 'Loading...' : 'Load Demo Data'}
+            </Button>
+          </div>
         </div>
 
         {/* Summary Cards */}
