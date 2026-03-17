@@ -69,7 +69,7 @@ PROVIDER_PRICING = {
         'gemini-1.5-flash': {'input': 0.000075, 'output': 0.0003},
         'gemini-2.0-flash': {'input': 0.0001, 'output': 0.0004},
         'gemini-2.0-flash-lite': {'input': 0.000075, 'output': 0.0003},
-        'default': {'input': 0.00025, 'output': 0.0005}
+        'default': {'input': 0.0001, 'output': 0.0004}
     },
     'cohere': {
         'command': {'input': 0.001, 'output': 0.002},
@@ -1506,6 +1506,48 @@ async def seed_demo_data(request: Request):
         })
 
     await db.api_calls.insert_many(calls)
+
+    # Insert demo alert history
+    await db.alert_history.delete_many({"user_id": user.user_id})
+    demo_alerts = [
+        {
+            "user_id": user.user_id,
+            "history_id": f"hist_{uuid.uuid4().hex[:8]}",
+            "alert_type": "single_feature",
+            "message": "doc-summarizer exceeded $30/day limit",
+            "value": 34.12,
+            "status": "triggered",
+            "triggered_at": (now - timedelta(days=1)).isoformat()
+        },
+        {
+            "user_id": user.user_id,
+            "history_id": f"hist_{uuid.uuid4().hex[:8]}",
+            "alert_type": "hourly_spike",
+            "message": "Hourly spike: 340% above average",
+            "value": None,
+            "status": "triggered",
+            "triggered_at": (now - timedelta(days=4)).isoformat()
+        },
+        {
+            "user_id": user.user_id,
+            "history_id": f"hist_{uuid.uuid4().hex[:8]}",
+            "alert_type": "daily_spend",
+            "message": "Daily spend exceeded $50 threshold",
+            "value": 52.34,
+            "status": "triggered",
+            "triggered_at": (now - timedelta(days=7)).isoformat()
+        },
+        {
+            "user_id": user.user_id,
+            "history_id": f"hist_{uuid.uuid4().hex[:8]}",
+            "alert_type": "single_feature",
+            "message": "chat-assistant exceeded $30/day limit",
+            "value": 31.50,
+            "status": "triggered",
+            "triggered_at": (now - timedelta(days=11)).isoformat()
+        }
+    ]
+    await db.alert_history.insert_many(demo_alerts)
 
     # Update user stats
     total_cost = sum(c["cost"] for c in calls)
