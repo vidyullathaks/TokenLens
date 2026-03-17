@@ -114,6 +114,7 @@ export default function Dashboard() {
             } else {
               // Providers connected but no calls yet - show zeros
               setHasRealData(false);
+              setHasDemoData(false);
               setStats({
                 total_spend: 0,
                 spend_change: 0,

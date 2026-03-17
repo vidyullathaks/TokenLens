@@ -1191,8 +1191,8 @@ async def get_real_dashboard_stats(request: Request):
     # Get unique features count
     features = await db.api_calls.distinct("feature", {"owner_id": user.user_id})
 
-    # Check if any demo data exists
-    demo_count = await db.api_calls.count_documents({"owner_id": user.user_id, "is_demo": True})
+    # Check if any demo data exists (tagged or legacy untagged)
+    demo_count = await db.api_calls.count_documents(demo_call_filter(user.user_id))
 
     return {
         "has_data": True,
@@ -1317,12 +1317,21 @@ async def get_real_top_users(request: Request):
         for r in results
     ]
 
+DEMO_END_USERS = ["user_001", "user_002", "user_003", "user_004", "user_005"]
+
+def demo_call_filter(owner_id: str) -> dict:
+    """Match both newly-tagged and legacy untagged demo calls"""
+    return {
+        "owner_id": owner_id,
+        "$or": [{"is_demo": True}, {"end_user": {"$in": DEMO_END_USERS}}],
+    }
+
 @api_router.post("/dashboard/clear-demo")
 async def clear_demo_data(request: Request):
     """Remove all demo data for the current user"""
     user = await get_current_user(request)
 
-    result = await db.api_calls.delete_many({"owner_id": user.user_id, "is_demo": True})
+    result = await db.api_calls.delete_many(demo_call_filter(user.user_id))
     await db.alert_history.delete_many({"user_id": user.user_id})
 
     # Recalculate user stats from remaining real calls
