@@ -540,6 +540,17 @@ async def get_alert_history(request: Request):
 
 # ==================== Settings/Provider Endpoints ====================
 
+@api_router.get("/settings/profile")
+async def get_user_profile(request: Request):
+    """Get current user's profile"""
+    user = await get_current_user(request)
+    return {
+        "user_id": user.user_id,
+        "email": user.email,
+        "name": getattr(user, "name", None),
+        "created_at": getattr(user, "created_at", None),
+    }
+
 @api_router.get("/settings/providers")
 async def get_connected_providers(request: Request):
     """Get user's connected AI providers"""
@@ -1138,21 +1149,18 @@ async def proxy_openai(request: Request):
 async def get_real_dashboard_stats(request: Request):
     """Get real dashboard statistics from tracked API calls"""
     user = await get_current_user(request)
-    
-    # Check if user has any connected providers
+
+    # Get connected providers (informational only — does not gate data)
     providers = await db.user_providers.find(
         {"user_id": user.user_id},
         {"_id": 0, "provider_id": 1}
     ).to_list(100)
-    
-    if not providers:
-        return {"has_data": False, "message": "No providers connected"}
-    
+
     # Get this month's stats
     now = datetime.now(timezone.utc)
     start_of_month = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
-    # Aggregate stats from api_calls
+
+    # Aggregate stats from api_calls (works with demo data too, no provider gate)
     pipeline = [
         {
             "$match": {
@@ -1169,35 +1177,36 @@ async def get_real_dashboard_stats(request: Request):
             }
         }
     ]
-    
+
     result = await db.api_calls.aggregate(pipeline).to_list(1)
-    
+
+    # Check demo data regardless of month filter (covers all-time demo calls)
+    demo_count = await db.api_calls.count_documents(demo_call_filter(user.user_id))
+
     if not result:
         return {
-            "has_data": True,
+            "has_data": demo_count > 0,
             "total_spend": 0,
             "spend_change": 0,
             "api_calls": 0,
             "calls_change": 0,
             "avg_cost_per_call": 0,
             "active_features": 0,
-            "connected_providers": [p["provider_id"] for p in providers]
+            "connected_providers": [p["provider_id"] for p in providers],
+            "has_demo_data": demo_count > 0,
         }
-    
+
     stats = result[0]
     total_spend = stats.get("total_spend", 0)
     api_calls = stats.get("api_calls", 0)
-    
+
     # Get unique features count
     features = await db.api_calls.distinct("feature", {"owner_id": user.user_id})
-
-    # Check if any demo data exists (tagged or legacy untagged)
-    demo_count = await db.api_calls.count_documents(demo_call_filter(user.user_id))
 
     return {
         "has_data": True,
         "total_spend": round(total_spend, 2),
-        "spend_change": 0,  # Would need last month data to calculate
+        "spend_change": 0,
         "api_calls": api_calls,
         "calls_change": 0,
         "avg_cost_per_call": round(total_spend / api_calls, 4) if api_calls > 0 else 0,
