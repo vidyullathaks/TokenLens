@@ -67,6 +67,8 @@ PROVIDER_PRICING = {
         'gemini-pro': {'input': 0.00025, 'output': 0.0005},
         'gemini-1.5-pro': {'input': 0.00125, 'output': 0.005},
         'gemini-1.5-flash': {'input': 0.000075, 'output': 0.0003},
+        'gemini-2.0-flash': {'input': 0.0001, 'output': 0.0004},
+        'gemini-2.0-flash-lite': {'input': 0.000075, 'output': 0.0003},
         'default': {'input': 0.00025, 'output': 0.0005}
     },
     'cohere': {
@@ -675,7 +677,7 @@ async def validate_provider_api_key(provider_id: str, api_key: str) -> Optional[
             elif provider_id == "google":
                 # Test Google AI key with a minimal request
                 response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
                     json={
                         "contents": [{"parts": [{"text": "Hi"}]}],
                         "generationConfig": {"maxOutputTokens": 1}
@@ -862,7 +864,7 @@ async def test_provider_connection(request: Request, provider_id: str):
 
             elif provider_id == "google":
                 response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}",
+                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
                     json={
                         "contents": [{"parts": [{"text": "Say 'TokenLens test successful' in 5 words or less"}]}],
                         "generationConfig": {"maxOutputTokens": 10}
@@ -874,12 +876,12 @@ async def test_provider_connection(request: Request, provider_id: str):
                     # Google doesn't return token counts in the same way, estimate
                     content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                     estimated_tokens = len(content.split()) * 2
-                    cost = calculate_cost("google", "gemini-1.5-flash", 10, estimated_tokens)
+                    cost = calculate_cost("google", "gemini-2.0-flash", 10, estimated_tokens)
 
                     await log_api_call(
                         user_id=user.user_id,
                         provider_id="google",
-                        model="gemini-1.5-flash",
+                        model="gemini-2.0-flash",
                         feature="connection-test",
                         end_user="system",
                         input_tokens=10,
@@ -1471,7 +1473,7 @@ async def seed_demo_data(request: Request):
     models = {
         "anthropic": ["claude-3-haiku-20240307", "claude-3-sonnet-20240229", "claude-3-opus-20240229"],
         "openai": ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo"],
-        "google": ["gemini-1.5-flash", "gemini-1.5-pro"],
+        "google": ["gemini-2.0-flash", "gemini-2.0-flash-lite", "gemini-1.5-pro"],
     }
     features = ["chat-assistant", "code-review", "summarization", "data-extraction", "content-generation"]
     end_users = ["user_001", "user_002", "user_003", "user_004", "user_005"]
