@@ -1152,7 +1152,10 @@ async def get_real_dashboard_stats(request: Request):
     
     # Get unique features count
     features = await db.api_calls.distinct("feature", {"owner_id": user.user_id})
-    
+
+    # Check if any demo data exists
+    demo_count = await db.api_calls.count_documents({"owner_id": user.user_id, "is_demo": True})
+
     return {
         "has_data": True,
         "total_spend": round(total_spend, 2),
@@ -1161,7 +1164,8 @@ async def get_real_dashboard_stats(request: Request):
         "calls_change": 0,
         "avg_cost_per_call": round(total_spend / api_calls, 4) if api_calls > 0 else 0,
         "active_features": len(features),
-        "connected_providers": [p["provider_id"] for p in providers]
+        "connected_providers": [p["provider_id"] for p in providers],
+        "has_demo_data": demo_count > 0,
     }
 
 @api_router.get("/dashboard/real-cost-by-feature")
@@ -1211,13 +1215,69 @@ async def get_real_cost_by_provider(request: Request):
 async def get_real_recent_calls(request: Request):
     """Get real recent API calls"""
     user = await get_current_user(request)
-    
+
     calls = await db.api_calls.find(
         {"owner_id": user.user_id},
         {"_id": 0}
     ).sort("timestamp", -1).to_list(20)
-    
+
     return calls
+
+@api_router.get("/dashboard/real-daily-spend")
+async def get_real_daily_spend(request: Request):
+    """Get daily spend for last 30 days aggregated from api_calls"""
+    user = await get_current_user(request)
+
+    now = datetime.now(timezone.utc)
+    since = now - timedelta(days=30)
+
+    pipeline = [
+        {"$match": {"owner_id": user.user_id, "timestamp": {"$gte": since.isoformat()}}},
+        {"$addFields": {"date_str": {"$substr": ["$timestamp", 0, 10]}}},
+        {"$group": {"_id": "$date_str", "spend": {"$sum": "$cost"}}},
+        {"$sort": {"_id": 1}},
+    ]
+    results = await db.api_calls.aggregate(pipeline).to_list(None)
+    spend_by_date = {r["_id"]: r["spend"] for r in results}
+
+    data = []
+    for i in range(30):
+        day = now - timedelta(days=29 - i)
+        date_key = day.strftime("%Y-%m-%d")
+        data.append({
+            "day": i + 1,
+            "date": day.strftime("%b %d"),
+            "spend": round(spend_by_date.get(date_key, 0), 4),
+        })
+    return data
+
+@api_router.get("/dashboard/real-top-users")
+async def get_real_top_users(request: Request):
+    """Get top end-users by cost aggregated from api_calls"""
+    user = await get_current_user(request)
+
+    pipeline = [
+        {"$match": {"owner_id": user.user_id, "end_user": {"$exists": True, "$ne": None}}},
+        {
+            "$group": {
+                "_id": "$end_user",
+                "calls": {"$sum": 1},
+                "total_cost": {"$sum": "$cost"},
+            }
+        },
+        {"$sort": {"total_cost": -1}},
+        {"$limit": 5},
+    ]
+    results = await db.api_calls.aggregate(pipeline).to_list(None)
+    return [
+        {
+            "user_id": r["_id"],
+            "calls": r["calls"],
+            "total_cost": round(r["total_cost"], 4),
+            "avg_cost": round(r["total_cost"] / r["calls"], 4) if r["calls"] > 0 else 0,
+        }
+        for r in results
+    ]
 
 # ==================== Helper Functions ====================
 

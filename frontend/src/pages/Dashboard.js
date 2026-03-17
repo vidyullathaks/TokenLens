@@ -53,6 +53,7 @@ export default function Dashboard() {
         headers: getAuthHeaders()
       });
       if (res.ok) {
+        setHasDemoData(true);
         await fetchDashboardData();
       }
     } catch (e) {
@@ -94,23 +95,22 @@ export default function Dashboard() {
             if (realStats.has_data && realStats.api_calls > 0) {
               setHasRealData(true);
               setStats(realStats);
-              
+              setHasDemoData(realStats.has_demo_data || false);
+
               // Fetch real data
-              const [featureRes, callsRes] = await Promise.all([
+              const [featureRes, callsRes, dailyRes, topUsersRes] = await Promise.all([
                 fetch(`${API}/dashboard/real-cost-by-feature`, { headers: getAuthHeaders() }),
-                fetch(`${API}/dashboard/real-recent-calls`, { headers: getAuthHeaders() })
+                fetch(`${API}/dashboard/real-recent-calls`, { headers: getAuthHeaders() }),
+                fetch(`${API}/dashboard/real-daily-spend`, { headers: getAuthHeaders() }),
+                fetch(`${API}/dashboard/real-top-users`, { headers: getAuthHeaders() }),
               ]);
-              
+
               if (featureRes.ok) setCostByFeature(await featureRes.json());
-              if (callsRes.ok) {
-                const calls = await callsRes.json();
-                setRecentCalls(calls);
-                setHasDemoData(calls.some(c => c.is_demo));
-              }
-              
-              // Generate daily data placeholder
-              setDailySpend(generateEmptyDailyData());
-              setTopUsers([]);
+              if (callsRes.ok) setRecentCalls(await callsRes.json());
+              if (dailyRes.ok) setDailySpend(await dailyRes.json());
+              else setDailySpend(generateEmptyDailyData());
+              if (topUsersRes.ok) setTopUsers(await topUsersRes.json());
+              else setTopUsers([]);
             } else {
               // Providers connected but no calls yet - show zeros
               setHasRealData(false);
