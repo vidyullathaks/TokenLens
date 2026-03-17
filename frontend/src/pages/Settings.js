@@ -66,7 +66,7 @@ const PROVIDERS = [
   {
     id: 'google',
     name: 'Google AI (Gemini)',
-    description: 'Gemini Pro, Gemini Ultra models',
+    description: 'Gemini 2.0 Flash, 1.5 Pro models',
     logo: '🔵',
     color: 'bg-blue-100 text-blue-700',
     keyPrefix: 'AI',
@@ -79,7 +79,7 @@ const PROVIDERS = [
       'Copy the generated API key'
     ],
     docsUrl: 'https://aistudio.google.com/app/apikey',
-    models: ['gemini-pro', 'gemini-ultra']
+    models: ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-pro']
   },
   {
     id: 'cohere',
