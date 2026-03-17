@@ -499,8 +499,8 @@ export default function Dashboard() {
                       <TableCell className="text-slate-600 text-sm">{formatTimestamp(call.timestamp)}</TableCell>
                       <TableCell className="font-mono text-sm text-slate-700">{call.feature}</TableCell>
                       <TableCell className="text-slate-600 text-sm">{call.model}</TableCell>
-                      <TableCell className="text-right text-slate-600">{call.tokens.toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-medium text-slate-900">${call.cost.toFixed(4)}</TableCell>
+                      <TableCell className="text-right text-slate-600">{(call.total_tokens ?? call.tokens ?? 0).toLocaleString()}</TableCell>
+                      <TableCell className="text-right font-medium text-slate-900">${(call.cost ?? 0).toFixed(4)}</TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
