@@ -25,7 +25,9 @@ client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ.get('DB_NAME', 'tokenlens')]
 
 # Encryption key for API keys (generate a consistent key from a secret)
-ENCRYPTION_SECRET = os.environ.get('ENCRYPTION_SECRET', 'tokenlens-default-secret-key-change-in-prod')
+ENCRYPTION_SECRET = os.environ.get('ENCRYPTION_SECRET')
+if not ENCRYPTION_SECRET:
+    raise RuntimeError("ENCRYPTION_SECRET environment variable is required but not set.")
 # Create a 32-byte key from the secret
 key_bytes = hashlib.sha256(ENCRYPTION_SECRET.encode()).digest()
 FERNET_KEY = base64.urlsafe_b64encode(key_bytes)
@@ -675,21 +677,18 @@ async def validate_provider_api_key(provider_id: str, api_key: str) -> Optional[
                     return f"OpenAI API error: {error_data.get('error', {}).get('message', 'Unknown error')}"
                     
             elif provider_id == "google":
-                # Test Google AI key with a minimal request
-                response = await client.post(
-                    f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={api_key}",
-                    json={
-                        "contents": [{"parts": [{"text": "Hi"}]}],
-                        "generationConfig": {"maxOutputTokens": 1}
-                    }
+                # Validate key by listing models — no generation quota consumed
+                response = await client.get(
+                    f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
                 )
                 if response.status_code == 400:
                     error_data = response.json()
                     if "API_KEY_INVALID" in str(error_data):
                         return "Invalid Google AI API key. Please check your key and try again."
+                    return f"Google AI API error: {error_data.get('error', {}).get('message', 'Bad request')}"
                 elif response.status_code == 403:
-                    return "Google AI API key doesn't have permission. Please enable the Generative Language API."
-                elif response.status_code >= 400 and response.status_code != 429:
+                    return "Google AI API key doesn't have permission. Please enable the Generative Language API in your Google Cloud project."
+                elif response.status_code >= 400:
                     return f"Google AI API error: {response.status_code}"
                     
             elif provider_id == "cohere":
@@ -873,7 +872,6 @@ async def test_provider_connection(request: Request, provider_id: str):
 
                 if response.status_code == 200:
                     data = response.json()
-                    # Google doesn't return token counts in the same way, estimate
                     content = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                     estimated_tokens = len(content.split()) * 2
                     cost = calculate_cost("google", "gemini-2.0-flash", 10, estimated_tokens)
@@ -888,7 +886,7 @@ async def test_provider_connection(request: Request, provider_id: str):
                         output_tokens=estimated_tokens,
                         cost=cost
                     )
-                    
+
                     return {
                         "success": True,
                         "message": content,
@@ -901,6 +899,15 @@ async def test_provider_connection(request: Request, provider_id: str):
                         error_msg = error_data.get("error", {}).get("message", f"Google AI error: {response.status_code}")
                     except Exception:
                         error_msg = f"Google AI error: {response.status_code}"
+
+                    # Quota errors mean the key is valid but billing isn't set up
+                    if response.status_code == 429 or "quota" in error_msg.lower() or "RESOURCE_EXHAUSTED" in str(error_data):
+                        return {
+                            "success": True,
+                            "message": "API key is valid and connected! Note: your Google AI account has no billing set up — add billing at console.cloud.google.com to make live calls.",
+                            "tokens": 0,
+                            "cost": 0
+                        }
                     return {"success": False, "error": error_msg}
             
             else:
@@ -1570,15 +1577,6 @@ async def root():
 async def health():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
-@api_router.get("/debug-db")
-async def debug_db():
-    """Temporary debug endpoint to test MongoDB connectivity"""
-    import traceback
-    try:
-        result = await db.users.find_one({}, {"_id": 0, "email": 1})
-        return {"status": "db_ok", "sample": str(result)[:100] if result else None}
-    except Exception as e:
-        return {"status": "db_error", "error": str(e), "type": type(e).__name__, "tb": traceback.format_exc()[-500:]}
 
 # Include router
 app.include_router(api_router)
@@ -1587,7 +1585,7 @@ app.include_router(api_router)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
-    allow_origins=os.environ.get('CORS_ORIGINS', '*').split(','),
+    allow_origins=os.environ.get('CORS_ORIGINS', 'https://tokenlens-three.vercel.app').split(','),
     allow_methods=["*"],
     allow_headers=["*"],
 )
