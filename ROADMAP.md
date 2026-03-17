@@ -107,8 +107,6 @@ Each version should deliver a complete, self-contained value loop — not just a
 
 ## What We're Deliberately Not Doing
 
-_This is a solo side project. Saying no isn't just good product thinking — it's survival._
-
 | Idea | Why I'm Passing |
 |---|---|
 | Building our own LLM | TokenLens is infrastructure, not a model provider. Scope creep that would take years and a team. |
@@ -116,6 +114,8 @@ _This is a solo side project. Saying no isn't just good product thinking — it'
 | General APM / error tracking | Datadog and Sentry already own this space. I'd be building a worse version of something that already exists rather than a better version of something that doesn't. |
 | Usage-based billing for end-users | That's a full product in itself. TokenLens is focused on observability — helping developers understand costs, not monetize them. Keeping that scope lean is a deliberate choice. |
 | Mobile app | The people who need this are engineers at a desk. A mobile dashboard would cost weeks and get used twice. |
+
+_This is a solo side project. Saying no isn't just good product thinking — it's survival._
 
 ---
 
