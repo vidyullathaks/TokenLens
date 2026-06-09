@@ -1,6 +1,7 @@
 from fastapi import FastAPI, APIRouter, HTTPException, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from dotenv import load_dotenv
+import json
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
@@ -1006,7 +1007,7 @@ async def proxy_anthropic(request: Request):
     tl_key = request.headers.get("X-TL-Key")
     tl_feature = request.headers.get("X-TL-Feature", "default")
     tl_user = request.headers.get("X-TL-User", "anonymous")
-    
+
     # Authenticate via TL key or session
     user = None
     if tl_key:
@@ -1014,24 +1015,72 @@ async def proxy_anthropic(request: Request):
         user_doc = await db.users.find_one({"api_key": tl_key}, {"_id": 0})
         if user_doc:
             user = User(**user_doc)
-    
+
     if not user:
         # Try session auth
         try:
             user = await get_current_user(request)
         except HTTPException:
             raise HTTPException(status_code=401, detail="Invalid TokenLens API key or session")
-    
+
     # Get user's Anthropic API key
     anthropic_key = await get_user_provider_key(user.user_id, "anthropic")
     if not anthropic_key:
         raise HTTPException(status_code=400, detail="Anthropic provider not connected. Add your API key in Settings.")
-    
+
     # Get request body
     body = await request.json()
     model = body.get("model", "claude-3-sonnet-20240229")
-    
-    # Forward to Anthropic
+    is_streaming = body.get("stream", False)
+
+    if is_streaming:
+        owner_id = user.user_id
+
+        async def stream_anthropic():
+            input_tokens = 0
+            output_tokens = 0
+            async with httpx.AsyncClient() as http:
+                async with http.stream(
+                    "POST",
+                    "https://api.anthropic.com/v1/messages",
+                    headers={
+                        "x-api-key": anthropic_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    },
+                    json=body,
+                    timeout=120.0
+                ) as response:
+                    async for chunk in response.aiter_text():
+                        yield chunk
+                        for line in chunk.splitlines():
+                            if line.startswith("data: "):
+                                try:
+                                    data = json.loads(line[6:])
+                                    t = data.get("type", "")
+                                    if t == "message_start":
+                                        input_tokens = data.get("message", {}).get("usage", {}).get("input_tokens", 0)
+                                    elif t == "message_delta":
+                                        output_tokens = data.get("usage", {}).get("output_tokens", 0)
+                                except Exception:
+                                    pass
+            cost = calculate_cost("anthropic", model, input_tokens, output_tokens)
+            try:
+                await log_api_call(
+                    user_id=owner_id, provider_id="anthropic", model=model,
+                    feature=tl_feature, end_user=tl_user,
+                    input_tokens=input_tokens, output_tokens=output_tokens, cost=cost
+                )
+            except Exception as e:
+                logger.error(f"Failed to log streaming call: {e}")
+
+        return StreamingResponse(
+            stream_anthropic(),
+            media_type="text/event-stream",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"}
+        )
+
+    # Forward to Anthropic (non-streaming)
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
@@ -1044,17 +1093,17 @@ async def proxy_anthropic(request: Request):
                 json=body,
                 timeout=120.0
             )
-            
+
             response_data = response.json()
-            
+
             # Extract token usage
             usage = response_data.get("usage", {})
             input_tokens = usage.get("input_tokens", 0)
             output_tokens = usage.get("output_tokens", 0)
-            
+
             # Calculate cost
             cost = calculate_cost("anthropic", model, input_tokens, output_tokens)
-            
+
             # Log the call
             await log_api_call(
                 user_id=user.user_id,
@@ -1066,16 +1115,16 @@ async def proxy_anthropic(request: Request):
                 output_tokens=output_tokens,
                 cost=cost
             )
-            
+
             # Add cost info to response
             response_data["_tokenlens"] = {
                 "cost": cost,
                 "feature": tl_feature,
                 "user": tl_user
             }
-            
+
             return JSONResponse(content=response_data, status_code=response.status_code)
-            
+
         except httpx.HTTPError as e:
             logger.error(f"Anthropic API error: {e}")
             raise HTTPException(status_code=502, detail=f"Anthropic API error: {str(e)}")
@@ -1087,28 +1136,76 @@ async def proxy_openai(request: Request):
     tl_key = request.headers.get("X-TL-Key")
     tl_feature = request.headers.get("X-TL-Feature", "default")
     tl_user = request.headers.get("X-TL-User", "anonymous")
-    
+
     # Authenticate via TL key or session
     user = None
     if tl_key:
         user_doc = await db.users.find_one({"api_key": tl_key}, {"_id": 0})
         if user_doc:
             user = User(**user_doc)
-    
+
     if not user:
         try:
             user = await get_current_user(request)
         except HTTPException:
             raise HTTPException(status_code=401, detail="Invalid TokenLens API key or session")
-    
+
     # Get user's OpenAI API key
     openai_key = await get_user_provider_key(user.user_id, "openai")
     if not openai_key:
         raise HTTPException(status_code=400, detail="OpenAI provider not connected. Add your API key in Settings.")
-    
+
     body = await request.json()
     model = body.get("model", "gpt-4")
-    
+    is_streaming = body.get("stream", False)
+
+    if is_streaming:
+        owner_id = user.user_id
+        # Inject stream_options to get usage in final chunk
+        streaming_body = {**body, "stream_options": {"include_usage": True}}
+
+        async def stream_openai():
+            prompt_tokens = 0
+            completion_tokens = 0
+            async with httpx.AsyncClient() as http:
+                async with http.stream(
+                    "POST",
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {openai_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json=streaming_body,
+                    timeout=120.0
+                ) as response:
+                    async for chunk in response.aiter_text():
+                        yield chunk
+                        for line in chunk.splitlines():
+                            if line.startswith("data: ") and line != "data: [DONE]":
+                                try:
+                                    data = json.loads(line[6:])
+                                    usage = data.get("usage")
+                                    if usage:
+                                        prompt_tokens = usage.get("prompt_tokens", 0)
+                                        completion_tokens = usage.get("completion_tokens", 0)
+                                except Exception:
+                                    pass
+            cost = calculate_cost("openai", model, prompt_tokens, completion_tokens)
+            try:
+                await log_api_call(
+                    user_id=owner_id, provider_id="openai", model=model,
+                    feature=tl_feature, end_user=tl_user,
+                    input_tokens=prompt_tokens, output_tokens=completion_tokens, cost=cost
+                )
+            except Exception as e:
+                logger.error(f"Failed to log streaming call: {e}")
+
+        return StreamingResponse(
+            stream_openai(),
+            media_type="text/event-stream",
+            headers={"X-Accel-Buffering": "no", "Cache-Control": "no-cache"}
+        )
+
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
@@ -1120,15 +1217,15 @@ async def proxy_openai(request: Request):
                 json=body,
                 timeout=120.0
             )
-            
+
             response_data = response.json()
-            
+
             usage = response_data.get("usage", {})
             input_tokens = usage.get("prompt_tokens", 0)
             output_tokens = usage.get("completion_tokens", 0)
-            
+
             cost = calculate_cost("openai", model, input_tokens, output_tokens)
-            
+
             await log_api_call(
                 user_id=user.user_id,
                 provider_id="openai",
@@ -1139,15 +1236,15 @@ async def proxy_openai(request: Request):
                 output_tokens=output_tokens,
                 cost=cost
             )
-            
+
             response_data["_tokenlens"] = {
                 "cost": cost,
                 "feature": tl_feature,
                 "user": tl_user
             }
-            
+
             return JSONResponse(content=response_data, status_code=response.status_code)
-            
+
         except httpx.HTTPError as e:
             logger.error(f"OpenAI API error: {e}")
             raise HTTPException(status_code=502, detail=f"OpenAI API error: {str(e)}")
@@ -1225,32 +1322,24 @@ async def get_real_dashboard_stats(request: Request):
     }
 
 @api_router.get("/dashboard/real-cost-by-feature")
-async def get_real_cost_by_feature(request: Request):
+async def get_real_cost_by_feature(request: Request, days: int = 30):
     """Get real cost breakdown by feature"""
     user = await get_current_user(request)
-    
+    since = datetime.now(timezone.utc) - timedelta(days=days)
     pipeline = [
-        {"$match": {"owner_id": user.user_id}},
-        {
-            "$group": {
-                "_id": "$feature",
-                "cost": {"$sum": "$cost"},
-                "calls": {"$sum": 1}
-            }
-        },
+        {"$match": {"owner_id": user.user_id, "timestamp": {"$gte": since.isoformat()}}},
+        {"$group": {"_id": "$feature", "cost": {"$sum": "$cost"}, "calls": {"$sum": 1}}},
         {"$sort": {"cost": -1}},
         {"$limit": 10}
     ]
-    
     results = await db.api_calls.aggregate(pipeline).to_list(10)
-    
-    return [{"feature": r["_id"], "cost": round(r["cost"], 2), "calls": r["calls"]} for r in results]
+    return [{"feature": r["_id"], "cost": round(r["cost"], 4), "calls": r["calls"]} for r in results]
 
 @api_router.get("/dashboard/real-cost-by-provider")
 async def get_real_cost_by_provider(request: Request):
     """Get real cost breakdown by provider"""
     user = await get_current_user(request)
-    
+
     pipeline = [
         {"$match": {"owner_id": user.user_id}},
         {
@@ -1262,30 +1351,59 @@ async def get_real_cost_by_provider(request: Request):
         },
         {"$sort": {"cost": -1}}
     ]
-    
+
     results = await db.api_calls.aggregate(pipeline).to_list(10)
-    
+
     return [{"provider": r["_id"], "cost": round(r["cost"], 2), "calls": r["calls"]} for r in results]
 
+@api_router.get("/dashboard/real-cost-by-model")
+async def get_real_cost_by_model(request: Request, days: int = 30):
+    """Get cost breakdown by model"""
+    user = await get_current_user(request)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    pipeline = [
+        {"$match": {"owner_id": user.user_id, "timestamp": {"$gte": since.isoformat()}}},
+        {
+            "$group": {
+                "_id": "$model",
+                "cost": {"$sum": "$cost"},
+                "calls": {"$sum": 1},
+                "tokens": {"$sum": "$total_tokens"}
+            }
+        },
+        {"$sort": {"cost": -1}},
+        {"$limit": 10}
+    ]
+    results = await db.api_calls.aggregate(pipeline).to_list(10)
+    return [
+        {
+            "model": r["_id"] or "unknown",
+            "cost": round(r["cost"], 4),
+            "calls": r["calls"],
+            "tokens": r["tokens"]
+        }
+        for r in results
+    ]
+
 @api_router.get("/dashboard/real-recent-calls")
-async def get_real_recent_calls(request: Request):
+async def get_real_recent_calls(request: Request, limit: int = 20):
     """Get real recent API calls"""
     user = await get_current_user(request)
 
     calls = await db.api_calls.find(
         {"owner_id": user.user_id},
         {"_id": 0}
-    ).sort("timestamp", -1).to_list(20)
+    ).sort("timestamp", -1).to_list(limit)
 
     return calls
 
 @api_router.get("/dashboard/real-daily-spend")
-async def get_real_daily_spend(request: Request):
-    """Get daily spend for last 30 days aggregated from api_calls"""
+async def get_real_daily_spend(request: Request, days: int = 30):
+    """Get daily spend aggregated from api_calls"""
     user = await get_current_user(request)
 
     now = datetime.now(timezone.utc)
-    since = now - timedelta(days=30)
+    since = now - timedelta(days=days)
 
     pipeline = [
         {"$match": {"owner_id": user.user_id, "timestamp": {"$gte": since.isoformat()}}},
@@ -1297,8 +1415,8 @@ async def get_real_daily_spend(request: Request):
     spend_by_date = {r["_id"]: r["spend"] for r in results}
 
     data = []
-    for i in range(30):
-        day = now - timedelta(days=29 - i)
+    for i in range(days):
+        day = now - timedelta(days=days - 1 - i)
         date_key = day.strftime("%Y-%m-%d")
         data.append({
             "day": i + 1,
@@ -1308,19 +1426,18 @@ async def get_real_daily_spend(request: Request):
     return data
 
 @api_router.get("/dashboard/real-top-users")
-async def get_real_top_users(request: Request):
+async def get_real_top_users(request: Request, days: int = 30):
     """Get top end-users by cost aggregated from api_calls"""
     user = await get_current_user(request)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
     pipeline = [
-        {"$match": {"owner_id": user.user_id, "end_user": {"$exists": True, "$ne": None}}},
-        {
-            "$group": {
-                "_id": "$end_user",
-                "calls": {"$sum": 1},
-                "total_cost": {"$sum": "$cost"},
-            }
-        },
+        {"$match": {
+            "owner_id": user.user_id,
+            "end_user": {"$exists": True, "$ne": None},
+            "timestamp": {"$gte": since.isoformat()}
+        }},
+        {"$group": {"_id": "$end_user", "calls": {"$sum": 1}, "total_cost": {"$sum": "$cost"}}},
         {"$sort": {"total_cost": -1}},
         {"$limit": 5},
     ]

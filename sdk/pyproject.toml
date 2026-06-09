@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=65"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "tokenlens"
+version = "0.1.0"
+description = "Python SDK for TokenLens — AI API cost tracking by feature and user"
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+keywords = ["ai", "llm", "cost", "tracking", "openai", "anthropic"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+]
+
+[project.optional-dependencies]
+anthropic = ["anthropic>=0.20.0"]
+openai = ["openai>=1.0.0"]
+all = ["anthropic>=0.20.0", "openai>=1.0.0"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tokenlens*"]

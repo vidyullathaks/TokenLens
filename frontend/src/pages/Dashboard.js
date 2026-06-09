@@ -4,33 +4,40 @@ import { Layout } from '../components/Layout';
 import { getAuthHeaders } from '../context/AuthContext';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from '../components/ui/table';
-import { 
-  BarChart, 
-  Bar, 
-  LineChart, 
-  Line, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  ResponsiveContainer 
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend
 } from 'recharts';
-import { TrendingUp, TrendingDown, DollarSign, Zap, Activity, Layers, Settings, AlertCircle, Beaker, X } from 'lucide-react';
+import { TrendingUp, TrendingDown, DollarSign, Zap, Activity, Layers, Settings, AlertCircle, Beaker, X, Download } from 'lucide-react';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 const API = `${BACKEND_URL}/api`;
 
+const PIE_COLORS = ['#0ea5e9', '#8b5cf6', '#f59e0b', '#10b981', '#ef4444', '#6366f1', '#ec4899', '#14b8a6'];
+
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [costByFeature, setCostByFeature] = useState([]);
+  const [costByModel, setCostByModel] = useState([]);
   const [dailySpend, setDailySpend] = useState([]);
   const [topUsers, setTopUsers] = useState([]);
   const [recentCalls, setRecentCalls] = useState([]);
@@ -40,10 +47,11 @@ export default function Dashboard() {
   const [hasDemoData, setHasDemoData] = useState(false);
   const [seedingDemo, setSeedingDemo] = useState(false);
   const [clearingDemo, setClearingDemo] = useState(false);
+  const [dateRange, setDateRange] = useState(30);
 
   useEffect(() => {
-    fetchDashboardData();
-  }, []);
+    fetchDashboardData(dateRange);
+  }, [dateRange]);
 
   const loadDemoData = async () => {
     setSeedingDemo(true);
@@ -54,7 +62,7 @@ export default function Dashboard() {
       });
       if (res.ok) {
         setHasDemoData(true);
-        await fetchDashboardData();
+        await fetchDashboardData(dateRange);
       }
     } catch (e) {
       console.error('Demo seed error:', e);
@@ -71,7 +79,7 @@ export default function Dashboard() {
       });
       if (res.ok) {
         setHasDemoData(false);
-        await fetchDashboardData();
+        await fetchDashboardData(dateRange);
       }
     } catch (e) {
       console.error('Demo clear error:', e);
@@ -79,7 +87,7 @@ export default function Dashboard() {
     setClearingDemo(false);
   };
 
-  const fetchDashboardData = async () => {
+  const fetchDashboardData = async (days) => {
     try {
       // Fetch providers and stats in parallel — stats no longer gated on providers
       const [providersRes, realStatsRes] = await Promise.all([
@@ -98,26 +106,30 @@ export default function Dashboard() {
           setStats(realStats);
           setHasDemoData(realStats.has_demo_data || false);
 
-          const [featureRes, callsRes, dailyRes, topUsersRes] = await Promise.all([
-            fetch(`${API}/dashboard/real-cost-by-feature`, { headers: getAuthHeaders() }),
+          const [featureRes, callsRes, dailyRes, topUsersRes, modelRes] = await Promise.all([
+            fetch(`${API}/dashboard/real-cost-by-feature?days=${days}`, { headers: getAuthHeaders() }),
             fetch(`${API}/dashboard/real-recent-calls`, { headers: getAuthHeaders() }),
-            fetch(`${API}/dashboard/real-daily-spend`, { headers: getAuthHeaders() }),
-            fetch(`${API}/dashboard/real-top-users`, { headers: getAuthHeaders() }),
+            fetch(`${API}/dashboard/real-daily-spend?days=${days}`, { headers: getAuthHeaders() }),
+            fetch(`${API}/dashboard/real-top-users?days=${days}`, { headers: getAuthHeaders() }),
+            fetch(`${API}/dashboard/real-cost-by-model?days=${days}`, { headers: getAuthHeaders() }),
           ]);
 
           if (featureRes.ok) setCostByFeature(await featureRes.json());
           if (callsRes.ok) setRecentCalls(await callsRes.json());
           if (dailyRes.ok) setDailySpend(await dailyRes.json());
-          else setDailySpend(generateEmptyDailyData());
+          else setDailySpend(generateEmptyDailyData(days));
           if (topUsersRes.ok) setTopUsers(await topUsersRes.json());
           else setTopUsers([]);
+          if (modelRes.ok) setCostByModel(await modelRes.json());
+          else setCostByModel([]);
         } else {
           // No data at all — reset everything, setup screen will show
           setHasRealData(false);
           setHasDemoData(false);
           setStats({ total_spend: 0, spend_change: 0, api_calls: 0, calls_change: 0, avg_cost_per_call: 0, active_features: 0 });
           setCostByFeature([]);
-          setDailySpend(generateEmptyDailyData());
+          setCostByModel([]);
+          setDailySpend(generateEmptyDailyData(days));
           setTopUsers([]);
           setRecentCalls([]);
         }
@@ -130,12 +142,12 @@ export default function Dashboard() {
     }
   };
 
-  const generateEmptyDailyData = () => {
+  const generateEmptyDailyData = (days = 30) => {
     const data = [];
     const now = new Date();
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < days; i++) {
       const day = new Date(now);
-      day.setDate(day.getDate() - (29 - i));
+      day.setDate(day.getDate() - (days - 1 - i));
       data.push({
         day: i + 1,
         date: day.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
@@ -143,6 +155,31 @@ export default function Dashboard() {
       });
     }
     return data;
+  };
+
+  const exportCSV = () => {
+    if (!recentCalls.length) return;
+    const headers = ['Timestamp', 'Feature', 'Model', 'Provider', 'Input Tokens', 'Output Tokens', 'Total Tokens', 'Cost ($)'];
+    const rows = recentCalls.map(c => [
+      c.timestamp,
+      c.feature || '',
+      c.model || '',
+      c.provider_id || '',
+      c.input_tokens ?? 0,
+      c.output_tokens ?? 0,
+      c.total_tokens ?? c.tokens ?? 0,
+      (c.cost ?? 0).toFixed(6)
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `tokenlens-${new Date().toISOString().slice(0,10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   };
 
   const formatCurrency = (value) => {
@@ -155,10 +192,10 @@ export default function Dashboard() {
 
   const formatTimestamp = (timestamp) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
       minute: '2-digit',
-      hour12: true 
+      hour12: true
     });
   };
 
@@ -269,14 +306,14 @@ export default function Dashboard() {
         )}
 
         {/* Page Header */}
-        <div className="flex items-start justify-between">
+        <div className="flex items-start justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 font-['Manrope'] tracking-tight" data-testid="dashboard-title">
               Dashboard
             </h1>
             <p className="text-slate-500 mt-1">Your API cost intelligence at a glance</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3 flex-wrap">
             {hasDemoData && (
               <Button
                 variant="outline"
@@ -301,7 +338,35 @@ export default function Dashboard() {
               <Beaker className="w-4 h-4 mr-2" />
               {seedingDemo ? 'Loading...' : 'Load Demo Data'}
             </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={exportCSV}
+              disabled={!recentCalls.length}
+              className="text-slate-500 border-slate-300 hover:bg-slate-50"
+              title="Export recent calls as CSV"
+            >
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
           </div>
+        </div>
+
+        {/* Date Range Selector */}
+        <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-1 w-fit">
+          {[7, 30, 90].map(d => (
+            <button
+              key={d}
+              onClick={() => setDateRange(d)}
+              className={`px-3 py-1 rounded-md text-sm font-medium transition-colors ${
+                dateRange === d
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {d}d
+            </button>
+          ))}
         </div>
 
         {/* Summary Cards */}
@@ -432,7 +497,7 @@ export default function Dashboard() {
           <Card className="border-slate-200 shadow-sm" data-testid="chart-daily-spend">
             <CardHeader>
               <CardTitle className="text-lg font-semibold text-slate-900 font-['Manrope']">
-                Daily Spend (Last 30 Days)
+                Daily Spend (Last {dateRange} Days)
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -440,30 +505,111 @@ export default function Dashboard() {
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={dailySpend} margin={{ left: 10, right: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis 
-                      dataKey="date" 
-                      stroke="#64748b" 
-                      fontSize={12} 
+                    <XAxis
+                      dataKey="date"
+                      stroke="#64748b"
+                      fontSize={12}
                       tickLine={false}
                       interval="preserveStartEnd"
                     />
-                    <YAxis 
-                      tickFormatter={(value) => `$${value}`} 
-                      stroke="#64748b" 
+                    <YAxis
+                      tickFormatter={(value) => `$${value}`}
+                      stroke="#64748b"
                       fontSize={12}
                       tickLine={false}
                     />
                     <Tooltip content={<CustomTooltip />} />
-                    <Line 
-                      type="monotone" 
-                      dataKey="spend" 
-                      stroke="#0f172a" 
+                    <Line
+                      type="monotone"
+                      dataKey="spend"
+                      stroke="#0f172a"
                       strokeWidth={2}
                       dot={false}
                       activeDot={{ r: 4, fill: '#0ea5e9' }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Cost by Model Row */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Cost by Model Pie Chart */}
+          <Card className="border-slate-200 shadow-sm" data-testid="chart-cost-by-model">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold text-slate-900 font-['Manrope']">
+                Cost by Model
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[300px]">
+                {costByModel.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={costByModel}
+                        dataKey="cost"
+                        nameKey="model"
+                        cx="50%"
+                        cy="50%"
+                        outerRadius={100}
+                        label={({ name, percent }) => `${name} ${(percent * 100).toFixed(1)}%`}
+                        labelLine={false}
+                      >
+                        {costByModel.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(value) => [`$${value.toFixed(4)}`, 'Cost']} />
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="flex items-center justify-center h-full text-slate-400 text-sm">
+                    No model data available for this period
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Model breakdown table */}
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="text-lg font-semibold text-slate-900 font-['Manrope']">
+                Model Breakdown
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-slate-200">
+                      <TableHead className="text-slate-500 font-medium">Model</TableHead>
+                      <TableHead className="text-slate-500 font-medium text-right">Calls</TableHead>
+                      <TableHead className="text-slate-500 font-medium text-right">Tokens</TableHead>
+                      <TableHead className="text-slate-500 font-medium text-right">Cost</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {costByModel.map((item, index) => (
+                      <TableRow key={item.model} className="border-slate-200 table-row-hover">
+                        <TableCell className="font-mono text-sm text-slate-700 flex items-center gap-2">
+                          <span
+                            className="inline-block w-2.5 h-2.5 rounded-full flex-shrink-0"
+                            style={{ backgroundColor: PIE_COLORS[index % PIE_COLORS.length] }}
+                          />
+                          {item.model}
+                        </TableCell>
+                        <TableCell className="text-right text-slate-600">{item.calls.toLocaleString()}</TableCell>
+                        <TableCell className="text-right text-slate-600">{(item.tokens ?? 0).toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-medium text-slate-900">${item.cost.toFixed(4)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </div>
             </CardContent>
           </Card>
@@ -479,26 +625,28 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-slate-200">
-                    <TableHead className="text-slate-500 font-medium">User ID</TableHead>
-                    <TableHead className="text-slate-500 font-medium text-right">Calls</TableHead>
-                    <TableHead className="text-slate-500 font-medium text-right">Total Cost</TableHead>
-                    <TableHead className="text-slate-500 font-medium text-right">Avg Cost/Call</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {topUsers.map((user, index) => (
-                    <TableRow key={user.user_id} className="border-slate-200 table-row-hover">
-                      <TableCell className="font-mono text-sm text-slate-700">{user.user_id}</TableCell>
-                      <TableCell className="text-right text-slate-600">{user.calls.toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-medium text-slate-900">{formatCurrency(user.total_cost)}</TableCell>
-                      <TableCell className="text-right text-slate-600">${user.avg_cost.toFixed(4)}</TableCell>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-slate-200">
+                      <TableHead className="text-slate-500 font-medium">User ID</TableHead>
+                      <TableHead className="text-slate-500 font-medium text-right">Calls</TableHead>
+                      <TableHead className="text-slate-500 font-medium text-right">Total Cost</TableHead>
+                      <TableHead className="text-slate-500 font-medium text-right">Avg Cost/Call</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {topUsers.map((user, index) => (
+                      <TableRow key={user.user_id} className="border-slate-200 table-row-hover">
+                        <TableCell className="font-mono text-sm text-slate-700">{user.user_id}</TableCell>
+                        <TableCell className="text-right text-slate-600">{user.calls.toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-medium text-slate-900">{formatCurrency(user.total_cost)}</TableCell>
+                        <TableCell className="text-right text-slate-600">${user.avg_cost.toFixed(4)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
 
@@ -510,28 +658,30 @@ export default function Dashboard() {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow className="border-slate-200">
-                    <TableHead className="text-slate-500 font-medium">Time</TableHead>
-                    <TableHead className="text-slate-500 font-medium">Feature</TableHead>
-                    <TableHead className="text-slate-500 font-medium">Model</TableHead>
-                    <TableHead className="text-slate-500 font-medium text-right">Tokens</TableHead>
-                    <TableHead className="text-slate-500 font-medium text-right">Cost</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {recentCalls.map((call) => (
-                    <TableRow key={call.call_id} className="border-slate-200 table-row-hover">
-                      <TableCell className="text-slate-600 text-sm">{formatTimestamp(call.timestamp)}</TableCell>
-                      <TableCell className="font-mono text-sm text-slate-700">{call.feature}</TableCell>
-                      <TableCell className="text-slate-600 text-sm">{call.model}</TableCell>
-                      <TableCell className="text-right text-slate-600">{(call.total_tokens ?? call.tokens ?? 0).toLocaleString()}</TableCell>
-                      <TableCell className="text-right font-medium text-slate-900">${(call.cost ?? 0).toFixed(4)}</TableCell>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="border-slate-200">
+                      <TableHead className="text-slate-500 font-medium">Time</TableHead>
+                      <TableHead className="text-slate-500 font-medium">Feature</TableHead>
+                      <TableHead className="text-slate-500 font-medium">Model</TableHead>
+                      <TableHead className="text-slate-500 font-medium text-right">Tokens</TableHead>
+                      <TableHead className="text-slate-500 font-medium text-right">Cost</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {recentCalls.map((call) => (
+                      <TableRow key={call.call_id} className="border-slate-200 table-row-hover">
+                        <TableCell className="text-slate-600 text-sm">{formatTimestamp(call.timestamp)}</TableCell>
+                        <TableCell className="font-mono text-sm text-slate-700">{call.feature}</TableCell>
+                        <TableCell className="text-slate-600 text-sm">{call.model}</TableCell>
+                        <TableCell className="text-right text-slate-600">{(call.total_tokens ?? call.tokens ?? 0).toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-medium text-slate-900">${(call.cost ?? 0).toFixed(4)}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </div>
