@@ -210,12 +210,25 @@ export default function Dashboard() {
               <p className="text-slate-600 mb-6 max-w-md mx-auto">
                 Add your Claude, OpenAI, Gemini, or other AI provider API keys to start tracking your usage and costs in real-time.
               </p>
-              <Link to="/settings">
-                <Button size="lg" className="bg-slate-900 hover:bg-slate-800" data-testid="setup-settings-button">
-                  <Settings className="w-5 h-5 mr-2" />
-                  Add Your API Keys
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                <Link to="/settings">
+                  <Button size="lg" className="bg-slate-900 hover:bg-slate-800" data-testid="setup-settings-button">
+                    <Settings className="w-5 h-5 mr-2" />
+                    Add Your API Keys
+                  </Button>
+                </Link>
+                <Button
+                  size="lg"
+                  variant="outline"
+                  onClick={loadDemoData}
+                  disabled={seedingDemo}
+                  className="border-slate-300"
+                  data-testid="setup-demo-button"
+                >
+                  <Beaker className="w-5 h-5 mr-2" />
+                  {seedingDemo ? 'Loading...' : 'Explore with Demo Data'}
                 </Button>
-              </Link>
+              </div>
             </CardContent>
           </Card>
 

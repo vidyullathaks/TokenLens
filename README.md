@@ -36,7 +36,7 @@ Go to **Settings → Providers**, paste your OpenAI or Anthropic key, and click 
 import openai
 
 client = openai.OpenAI(
-    base_url="https://tokenlens-three.vercel.app/api/proxy/openai",
+    base_url="https://tokenlens-three.vercel.app/api/proxy/openai/v1",
     default_headers={
         "X-TL-Key": "tl_live_your_key_here",   # from Step 1
         "X-TL-Feature": "chat",                  # name this feature anything
@@ -56,7 +56,7 @@ response = client.chat.completions.create(
 import OpenAI from "openai";
 
 const client = new OpenAI({
-  baseURL: "https://tokenlens-three.vercel.app/api/proxy/openai",
+  baseURL: "https://tokenlens-three.vercel.app/api/proxy/openai/v1",
   defaultHeaders: {
     "X-TL-Key": "tl_live_your_key_here",
     "X-TL-Feature": "chat",
@@ -105,7 +105,7 @@ client = openai.OpenAI(api_key="sk-...")
 **After:**
 ```python
 client = openai.OpenAI(
-    base_url="https://tokenlens-three.vercel.app/api/proxy/openai",
+    base_url="https://tokenlens-three.vercel.app/api/proxy/openai/v1",
     default_headers={
         "X-TL-Key": "tl_live_your_key",
         "X-TL-Feature": "chat-assistant",   # tag which feature

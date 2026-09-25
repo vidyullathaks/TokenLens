@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import asyncio
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, ConfigDict
@@ -21,8 +22,37 @@ load_dotenv(ROOT_DIR / '.env')
 
 # MongoDB connection
 mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ.get('DB_NAME', 'tokenlens')]
+db_name = os.environ.get('DB_NAME', 'tokenlens')
+
+# A Motor client is bound to the event loop it was first used on. Serverless
+# runtimes (e.g. Vercel's Python runtime) run each request on a fresh event
+# loop, so a single module-level client fails every request after the first
+# with "Event loop is closed". Create one client per running loop instead.
+_mongo_client = None
+_mongo_loop = None
+
+def get_mongo_client() -> AsyncIOMotorClient:
+    global _mongo_client, _mongo_loop
+    loop = asyncio.get_running_loop()
+    if _mongo_client is None or _mongo_loop is not loop:
+        if _mongo_client is not None:
+            try:
+                _mongo_client.close()
+            except Exception:
+                pass
+        _mongo_client = AsyncIOMotorClient(mongo_url)
+        _mongo_loop = loop
+    return _mongo_client
+
+class _LoopBoundDatabase:
+    """Resolves db.<collection> against the client for the current event loop"""
+    def __getattr__(self, name):
+        return get_mongo_client()[db_name][name]
+
+    def __getitem__(self, name):
+        return get_mongo_client()[db_name][name]
+
+db = _LoopBoundDatabase()
 
 # Encryption key for API keys (generate a consistent key from a secret)
 ENCRYPTION_SECRET = os.environ.get('ENCRYPTION_SECRET')
@@ -1592,4 +1622,8 @@ app.add_middleware(
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    global _mongo_client, _mongo_loop
+    if _mongo_client is not None:
+        _mongo_client.close()
+        _mongo_client = None
+        _mongo_loop = None

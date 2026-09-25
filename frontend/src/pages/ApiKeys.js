@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || '';
 const API = `${BACKEND_URL}/api`;
+// OpenAI SDKs append "/chat/completions" to the base URL, so it must end in /v1
+const OPENAI_PROXY_URL = `${BACKEND_URL || window.location.origin}/api/proxy/openai/v1`;
 
 export default function ApiKeys() {
   const [apiKey, setApiKey] = useState('');
@@ -76,7 +78,7 @@ export default function ApiKeys() {
 
 client = openai.OpenAI(
     api_key="sk-your-openai-key",
-    base_url="https://tokenlens.io/proxy/openai",
+    base_url="${OPENAI_PROXY_URL}",
     default_headers={
         "X-TL-Key": "${apiKey || 'tl_live_xxxxxxxxxxxx'}",
         "X-TL-Feature": "chat-assistant",
@@ -94,7 +96,7 @@ response = client.chat.completions.create(
 
 const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    baseURL: "https://tokenlens.io/proxy/openai",
+    baseURL: "${OPENAI_PROXY_URL}",
     defaultHeaders: {
         "X-TL-Key": "${apiKey || 'tl_live_xxxxxxxxxxxx'}",
         "X-TL-Feature": "chat-assistant",
