@@ -181,7 +181,7 @@ export default function Login() {
               <p className="text-xs text-slate-500 font-medium uppercase tracking-wider mb-3">Integration in 60 seconds</p>
               <pre className="text-xs text-slate-300 font-['JetBrains_Mono'] overflow-x-auto leading-relaxed">
 {`client = openai.OpenAI(
-  base_url="https://your-api/proxy/openai",
+  base_url="https://tokenlens-three.vercel.app/api/proxy/openai/v1",
   default_headers={
     "X-TL-Key": "tl_live_xxx",
     "X-TL-Feature": "chat"
