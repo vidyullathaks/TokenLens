@@ -1607,6 +1607,17 @@ async def root():
 async def health():
     return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
+@api_router.get("/health/db")
+async def health_db():
+    """Ping MongoDB. Called daily by a Vercel cron so the free Atlas cluster
+    never looks idle and gets auto-paused."""
+    try:
+        await get_mongo_client()[db_name].command("ping")
+    except Exception as e:
+        logger.error(f"Database health check failed: {e}")
+        return JSONResponse(status_code=503, content={"status": "unhealthy", "database": "unreachable"})
+    return {"status": "healthy", "database": "reachable", "timestamp": datetime.now(timezone.utc).isoformat()}
+
 
 # Include router
 app.include_router(api_router)
